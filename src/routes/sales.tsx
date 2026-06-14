@@ -30,6 +30,9 @@ import { toast } from "sonner";
 import { NumberInput } from "@/components/ui/number-input";
 
 export const Route = createFileRoute("/sales")({
+  validateSearch: (search: Record<string, unknown>): { new?: boolean } => ({
+    new: search.new === true || search.new === "true" || search.new === "1" ? true : undefined,
+  }),
   head: () => ({ meta: [{ title: "Sales — Shop Manager" }] }),
   component: SalesPage,
 });
@@ -39,10 +42,22 @@ function SalesPage() {
   const { user } = useAuth();
   const isAdmin = useIsAdmin();
   const canWrite = useCanWrite();
+  const navigate = useNavigate();
+  const search = Route.useSearch();
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<"single" | "group">("single");
   const [editing, setEditing] = React.useState<Sale | null>(null);
   const [showArchived, setShowArchived] = React.useState(false);
+
+  // The mobile "+" FAB navigates here with ?new=1 — open the New Bill dialog, then clear the param.
+  React.useEffect(() => {
+    if (search.new && canWrite) {
+      setEditing(null);
+      setMode("group");
+      setOpen(true);
+      navigate({ to: "/sales", search: {}, replace: true });
+    }
+  }, [search.new, canWrite, navigate]);
 
   const [statusTab, setStatusTab] = React.useState<"all" | "unpaid" | "partial" | "paid">("all");
 

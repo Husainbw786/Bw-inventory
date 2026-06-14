@@ -89,9 +89,9 @@ function ItemsPage() {
               className="pe-card-hover rounded-2xl border border-[color:var(--pe-line)] bg-card cursor-pointer"
               style={{ boxShadow: "0 1px 2px rgba(20,32,29,.04), 0 4px 16px rgba(20,32,29,.05)" }}
             >
-              <div className="p-4 md:p-5 flex items-center gap-4">
+              <div className="p-4 md:p-5 flex items-center gap-3 md:gap-4">
                 {/* Avatar */}
-                <PeAvatar name={i.name} tone={avatarTone} size={56} />
+                <PeAvatar name={i.name} tone={avatarTone} size={48} />
 
                 {/* Name + unit + buy/sell */}
                 <div className="min-w-0 flex-1">
@@ -140,14 +140,14 @@ function ItemsPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-1.5 md:gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
                   {canEdit && (
                     <button
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditing(i); setOpen(true); }}
-                      className="inline-flex items-center gap-2 h-10 px-4 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)]"
+                      className="inline-flex items-center gap-2 h-10 px-3 sm:px-4 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)]"
                     >
                       <Pencil className="h-4 w-4" />
-                      Edit
+                      <span className="hidden sm:inline">Edit</span>
                     </button>
                   )}
                   <DropdownMenu>
@@ -155,10 +155,10 @@ function ItemsPage() {
                       <button
                         type="button"
                         onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-2 h-10 px-4 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)]"
+                        className="inline-flex items-center gap-2 h-10 px-3 sm:px-4 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)]"
                       >
                         <MoreHorizontal className="h-4 w-4" />
-                        More
+                        <span className="hidden sm:inline">More</span>
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48">

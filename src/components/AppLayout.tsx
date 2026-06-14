@@ -177,6 +177,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         })}
         <Link
           to="/sales"
+          search={{ new: true }}
           aria-label="New bill"
           className="shrink-0 mx-1.5 flex items-center justify-center text-white shadow-lg"
           style={{

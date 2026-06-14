@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useAuth, signOut } from "@/lib/auth";
 import { useBusiness } from "@/lib/business";
 import { TweaksPanel } from "@/components/TweaksPanel";
+import { AppearanceMenu } from "@/lib/theme";
 
 const NAV = [
   { to: "/",                  label: "Home",      icon: Home,         exact: true },
@@ -23,7 +24,9 @@ const NAV = [
   { to: "/business/settings", label: "Settings",  icon: Settings,    adminOnly: true },
 ] as const;
 
-const MOBILE_PRIMARY = ["/", "/sales", "/items", "/reports"] as const;
+// 2 tabs left + center FAB + 2 tabs right (Items, More) keeps the "+" perfectly
+// centered and all tab slots equal width. Reports lives in the "More" sheet.
+const MOBILE_PRIMARY = ["/", "/sales", "/items"] as const;
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
@@ -115,6 +118,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="text-sm font-bold text-[color:var(--pe-ink)] truncate">{displayName || "User"}</div>
             <div className="text-[11px] text-[color:var(--pe-ink-3)] capitalize">{role ?? "Owner"}</div>
           </div>
+          <AppearanceMenu />
           <button
             onClick={() => signOut().then(() => (window.location.href = "/auth"))}
             className="text-[color:var(--pe-ink-3)] hover:text-[color:var(--pe-ink)] p-1.5"
@@ -130,14 +134,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <header
           className="md:hidden sticky top-0 z-30 print:hidden"
           style={{
-            background: "rgba(255,255,255,.92)",
+            background: "color-mix(in srgb, var(--pe-surface) 92%, transparent)",
             backdropFilter: "blur(10px)",
             borderBottom: "1px solid var(--pe-line)",
             padding: "12px 16px",
           }}
         >
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-1">
             <div className="min-w-0 flex-1">{BusinessSwitcher}</div>
+            <AppearanceMenu />
             <button
               onClick={() => signOut().then(() => (window.location.href = "/auth"))}
               className="text-[color:var(--pe-ink-3)] hover:text-[color:var(--pe-ink)] p-1.5"
@@ -157,7 +162,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <nav
         className="md:hidden fixed bottom-0 left-0 right-0 z-30 print:hidden flex items-center"
         style={{
-          background: "rgba(255,255,255,.94)",
+          background: "color-mix(in srgb, var(--pe-surface) 94%, transparent)",
           backdropFilter: "blur(12px)",
           borderTop: "1px solid var(--pe-line)",
           padding: "8px 6px calc(8px + env(safe-area-inset-bottom))",

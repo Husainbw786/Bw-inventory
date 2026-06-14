@@ -116,6 +116,27 @@
 }
 
 .dark {
+  /* Pioneer palette — dark variants (mirrors the shadcn dark tokens below) */
+  --pe-green: #2EBE9A;
+  --pe-green-dark: #1F9E80;
+  --pe-green-soft: #15302A;
+  --pe-green-soft-2: #1C3D35;
+  --pe-ink: #F4F2EA;
+  --pe-ink-2: #C5CDC8;
+  --pe-ink-3: #95A19B;
+  --pe-line: #1F2C28;
+  --pe-line-2: #1B2724;
+  --pe-bg: #0F1614;
+  --pe-surface: #161F1C;
+  --pe-good: #4ADE80;
+  --pe-good-bg: #16301F;
+  --pe-warn: #FBBF24;
+  --pe-warn-bg: #3A2C12;
+  --pe-bad: #F08A80;
+  --pe-bad-bg: #3A1E1B;
+  --pe-info: #7FB0F2;
+  --pe-info-bg: #16263A;
+
   --background: #0F1614;
   --foreground: #F4F2EA;
   --card: #161F1C;

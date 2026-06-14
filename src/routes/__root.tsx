@@ -13,6 +13,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { BusinessProvider, useBusiness } from "@/lib/business";
+import { ThemeProvider, THEME_INIT_SCRIPT } from "@/lib/theme";
 
 function NotFoundComponent() {
   return (
@@ -87,7 +88,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head><HeadContent /></head>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <HeadContent />
+      </head>
       <body>{children}<Scripts /></body>
     </html>
   );
@@ -96,14 +100,16 @@ function RootShell({ children }: { children: React.ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <BusinessProvider>
-          <AuthGate />
-        </BusinessProvider>
-      </AuthProvider>
-      <Toaster richColors position="top-center" />
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <BusinessProvider>
+            <AuthGate />
+          </BusinessProvider>
+        </AuthProvider>
+        <Toaster richColors position="top-center" />
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }
 

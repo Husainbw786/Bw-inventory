@@ -19,7 +19,12 @@ function NewBusinessPage() {
   const { user } = useAuth();
   const { refresh, switchTo } = useBusiness();
   const nav = useNavigate();
-  const [name, setName] = React.useState("");
+  const [name, setName] = React.useState(() => {
+    if (typeof window === "undefined") return "";
+    const pending = sessionStorage.getItem("pendingBusinessName") ?? "";
+    if (pending) sessionStorage.removeItem("pendingBusinessName");
+    return pending;
+  });
   const [phone, setPhone] = React.useState("");
   const [address, setAddress] = React.useState("");
   const [busy, setBusy] = React.useState(false);

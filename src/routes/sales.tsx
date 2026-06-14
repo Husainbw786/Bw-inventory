@@ -299,13 +299,13 @@ function SalesPage() {
                 {canEdit && !s.archived && !isFullyPaid ? (
                   <Button
                     onClick={() => openPayment(s)}
-                    className="h-10 px-4 rounded-xl gap-2 font-semibold"
+                    className="h-10 px-4 rounded-xl gap-2 font-semibold w-full md:w-auto justify-center"
                   >
                     <Wallet className="h-4 w-4" />
                     Record payment
                   </Button>
                 ) : (
-                  <div className="inline-flex items-center gap-2 h-10 px-3 text-[13px] font-semibold text-[color:var(--pe-good)]">
+                  <div className="inline-flex items-center justify-center gap-2 h-10 px-3 text-[13px] font-semibold text-[color:var(--pe-good)] w-full md:w-auto">
                     <CheckCircle2 className="h-4 w-4" />
                     Fully paid
                   </div>
@@ -314,7 +314,7 @@ function SalesPage() {
                 <button
                   type="button"
                   onClick={() => setShareTarget(s)}
-                  className="inline-flex items-center gap-2 h-10 px-4 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)]"
+                  className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)] flex-1 md:flex-none"
                   title="Send this bill"
                 >
                   <Share2 className="h-4 w-4 text-[color:var(--pe-good)]" />
@@ -324,7 +324,7 @@ function SalesPage() {
                 <Link
                   to="/bills/$id"
                   params={{ id: s.id }}
-                  className="inline-flex items-center gap-2 h-10 px-4 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)]"
+                  className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)] flex-1 md:flex-none"
                 >
                   View bill
                 </Link>

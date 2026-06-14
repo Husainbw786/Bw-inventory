@@ -1,6 +1,5 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +12,7 @@ import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
 import { Plus, Phone, MapPin, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { PhoneInput, isValidPhone } from "@/components/ui/phone-input";
+import { PeAvatar } from "@/components/ui/pe";
 
 export const Route = createFileRoute("/directory")({
   head: () => ({ meta: [{ title: "Directory — Shop Manager" }] }),
@@ -40,7 +40,7 @@ function DirectoryPage() {
           <TabsTrigger value="customers">Customers ({db.customers.length})</TabsTrigger>
         </TabsList>
 
-        <TabsContent value={tab} className="grid gap-2">
+        <TabsContent value={tab} className="grid gap-3">
           {list.map((p) => {
             const stats = tab === "dealers"
               ? {
@@ -60,44 +60,79 @@ function DirectoryPage() {
                 ? `Warning: this dealer is referenced by ${usage.purchases} purchase(s). Those records will show "—" for the dealer after deletion. Continue?`
                 : `Warning: this customer is referenced by ${usage.sales} sale(s)/bill(s). Those records will show "—" for the customer after deletion. Continue?`
               : undefined;
+
+            const editBtn = canEdit ? (
+              <button
+                onClick={() => { setEditing(p); setOpen(true); }}
+                aria-label="Edit"
+                className="inline-flex items-center justify-center h-9 w-9 rounded-xl border border-[color:var(--pe-line)] text-[color:var(--pe-ink-2)] hover:bg-[color:var(--pe-bg)]"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            ) : null;
+            const deleteBtn = (
+              <AdminDelete
+                label={tab === "dealers" ? "dealer" : "customer"}
+                detail={detail}
+                onConfirm={() =>
+                  set((d) =>
+                    tab === "dealers"
+                      ? { ...d, dealers: d.dealers.filter((x) => x.id !== p.id) }
+                      : { ...d, customers: d.customers.filter((x) => x.id !== p.id) },
+                  )
+                }
+              />
+            );
+
             return (
-              <Card key={p.id}>
-                <CardContent className="p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{p.name}</div>
-                      {p.phone && <div className="text-xs text-muted-foreground flex items-center gap-1"><Phone className="h-3 w-3" />{p.phone}</div>}
-                      {p.address && <div className="text-xs text-muted-foreground flex items-center gap-1"><MapPin className="h-3 w-3" />{p.address}</div>}
-                    </div>
-                    <div className="text-right flex items-start gap-1">
-                      <div>
-                        <div className="text-sm font-semibold tabular-nums">{fmtINR(stats.total)}</div>
-                        <div className="text-xs text-muted-foreground">{stats.count} {stats.label}</div>
-                      </div>
-                      {canEdit && (
-                        <button
-                          onClick={() => { setEditing(p); setOpen(true); }}
-                          aria-label="Edit"
-                          className="inline-flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                      )}
-                      <AdminDelete
-                        label={tab === "dealers" ? "dealer" : "customer"}
-                        detail={detail}
-                        onConfirm={() =>
-                          set((d) =>
-                            tab === "dealers"
-                              ? { ...d, dealers: d.dealers.filter((x) => x.id !== p.id) }
-                              : { ...d, customers: d.customers.filter((x) => x.id !== p.id) },
-                          )
-                        }
-                      />
+              <div
+                key={p.id}
+                className="rounded-2xl border border-[color:var(--pe-line)] bg-card"
+                style={{ boxShadow: "0 1px 2px rgba(20,32,29,.04), 0 4px 16px rgba(20,32,29,.05)" }}
+              >
+                {/* ---- Mobile ---- */}
+                <div className="md:hidden p-4">
+                  <div className="flex items-start gap-3">
+                    <PeAvatar name={p.name} tone={tab === "dealers" ? "info" : "green"} size={46} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[16px] font-bold text-[color:var(--pe-ink)] truncate tracking-[-0.01em]">{p.name}</div>
+                      {p.phone && <div className="text-[13px] text-[color:var(--pe-ink-3)] mt-1 flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 shrink-0" /> {p.phone}</div>}
+                      {p.address && <div className="text-[13px] text-[color:var(--pe-ink-3)] mt-0.5 flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{p.address}</span></div>}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[color:var(--pe-line-2)]">
+                    <div className="min-w-0">
+                      <div className="text-[16px] font-extrabold tabular-nums text-[color:var(--pe-ink)] leading-none">{fmtINR(stats.total)}</div>
+                      <div className="text-[12px] text-[color:var(--pe-ink-3)] mt-1">{stats.count} {stats.label}</div>
+                    </div>
+                    <div className="flex-1" />
+                    {editBtn}
+                    {deleteBtn}
+                  </div>
+                </div>
+
+                {/* ---- Desktop ---- */}
+                <div className="hidden md:flex p-4 items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <PeAvatar name={p.name} tone={tab === "dealers" ? "info" : "green"} size={44} />
+                    <div className="min-w-0">
+                      <div className="font-bold text-[color:var(--pe-ink)] truncate">{p.name}</div>
+                      <div className="flex gap-4 mt-0.5 text-xs text-[color:var(--pe-ink-3)] flex-wrap">
+                        {p.phone && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{p.phone}</span>}
+                        {p.address && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{p.address}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right flex items-center gap-3">
+                    <div>
+                      <div className="text-sm font-semibold tabular-nums text-[color:var(--pe-ink)]">{fmtINR(stats.total)}</div>
+                      <div className="text-xs text-[color:var(--pe-ink-3)]">{stats.count} {stats.label}</div>
+                    </div>
+                    {editBtn}
+                    {deleteBtn}
+                  </div>
+                </div>
+              </div>
             );
           })}
           {list.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">None yet.</p>}

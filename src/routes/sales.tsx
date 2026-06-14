@@ -37,6 +37,17 @@ export const Route = createFileRoute("/sales")({
   component: SalesPage,
 });
 
+// Compact money box for the mobile sale card (Bill total / Paid / Still due).
+function MoneyBox({ label, value, tone }: { label: string; value: number; tone?: PeTone }) {
+  const color = tone ? toneStyle(tone).fg : "var(--pe-ink)";
+  return (
+    <div className="rounded-xl border border-[color:var(--pe-line)]" style={{ background: "var(--pe-bg)", padding: "8px 10px" }}>
+      <div className="text-[11px] font-semibold text-[color:var(--pe-ink-3)] mb-0.5 whitespace-nowrap">{label}</div>
+      <div className="text-[15px] font-extrabold tabular-nums truncate" style={{ color }}>{fmtINR(value)}</div>
+    </div>
+  );
+}
+
 function SalesPage() {
   const [db, set] = useDB();
   const { user } = useAuth();
@@ -226,8 +237,28 @@ function SalesPage() {
               }
               style={{ boxShadow: "0 1px 2px rgba(20,32,29,.04), 0 4px 16px rgba(20,32,29,.05)" }}
             >
-              {/* Top row: avatar + name/meta + total/paid/due */}
-              <div className="p-4 md:p-5 flex items-start justify-between gap-4">
+              {/* Top — mobile: identity row + 3-col money block */}
+              <div className="md:hidden p-4">
+                <div className="flex items-center gap-3">
+                  <PeAvatar name={nameForAvatar} tone={avatarTone} size={44} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[16px] font-bold text-[color:var(--pe-ink)] truncate tracking-[-0.01em]">
+                      {cust?.name ?? <span className="italic text-muted-foreground">(deleted)</span>}
+                    </div>
+                    <div className="text-[12.5px] text-[color:var(--pe-ink-3)] mt-0.5">{fmtDate(s.date)} · {billNo}</div>
+                  </div>
+                  <PeStatusPill tone={statusTone} label={statusLabel} />
+                </div>
+                <div className="grid grid-cols-3 gap-2 mt-3">
+                  <MoneyBox label="Bill total" value={total} />
+                  <MoneyBox label="Paid" value={paid} tone="good" />
+                  <MoneyBox label="Still due" value={due} tone={due > 0 ? "bad" : "good"} />
+                </div>
+                {s.archived && <div className="mt-2"><PeStatusPill tone="neutral" label="Archived" /></div>}
+              </div>
+
+              {/* Top — desktop: avatar + name/meta + total/paid/due */}
+              <div className="hidden md:flex p-5 items-start justify-between gap-4">
                 <div className="flex items-start gap-3 min-w-0">
                   <PeAvatar name={nameForAvatar} tone={avatarTone} size={44} />
                   <div className="min-w-0">

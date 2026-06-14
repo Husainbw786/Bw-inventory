@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Plus, Search, Pencil, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { NumberInput } from "@/components/ui/number-input";
-import { PeAvatar, type PeTone } from "@/components/ui/pe";
+import { PeAvatar, PeStatusPill, type PeTone } from "@/components/ui/pe";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 
@@ -21,6 +21,19 @@ export const Route = createFileRoute("/items")({
   }),
   component: ItemsPage,
 });
+
+// Price box used in the mobile item card.
+function PriceBox({ label, value, tone }: { label: string; value: number | null; tone?: "good" }) {
+  const has = value != null;
+  return (
+    <div className="rounded-xl border border-[color:var(--pe-line)]" style={{ background: "var(--pe-bg)", padding: "8px 11px" }}>
+      <div className="text-[11px] font-semibold text-[color:var(--pe-ink-3)] mb-0.5">{label}</div>
+      <div className="text-[16px] font-extrabold tabular-nums" style={{ color: has ? (tone === "good" ? "var(--pe-good)" : "var(--pe-ink)") : "var(--pe-ink-3)" }}>
+        {has ? fmtINR(value!) : "—"}
+      </div>
+    </div>
+  );
+}
 
 function ItemsPage() {
   const [db, set] = useDB();
@@ -79,6 +92,42 @@ function ItemsPage() {
           ];
           const margin = i.lp && i.ls && i.lp > 0 ? Math.round(((i.ls - i.lp) / i.lp) * 100) : null;
           const goToDetail = () => navigate({ to: "/items/$id", params: { id: i.id } });
+
+          const actionBtns = (
+            <>
+              {canEdit && (
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditing(i); setOpen(true); }}
+                  className="inline-flex items-center gap-2 h-9 px-3 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)]"
+                >
+                  <Pencil className="h-4 w-4" /> Edit
+                </button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-2 h-9 px-3 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)]"
+                  >
+                    <MoreHorizontal className="h-4 w-4" /> More
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={goToDetail}>View details</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <div className="px-1 py-1">
+                    <AdminDelete
+                      label="item"
+                      detail={detail}
+                      onConfirm={() => set((d) => ({ ...d, items: d.items.filter((x) => x.id !== i.id) }))}
+                    />
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          );
+
           return (
             <div
               key={i.id}
@@ -89,90 +138,61 @@ function ItemsPage() {
               className="pe-card-hover rounded-2xl border border-[color:var(--pe-line)] bg-card cursor-pointer"
               style={{ boxShadow: "0 1px 2px rgba(20,32,29,.04), 0 4px 16px rgba(20,32,29,.05)" }}
             >
-              <div className="p-4 md:p-5 flex items-center gap-3 md:gap-4">
-                {/* Avatar */}
-                <PeAvatar name={i.name} tone={avatarTone} size={48} />
-
-                {/* Name + unit + buy/sell */}
-                <div className="min-w-0 flex-1">
-                  <div className="text-[17px] md:text-[18px] font-bold text-[color:var(--pe-ink)] truncate tracking-[-0.01em]">{i.name}</div>
-                  <div className="text-[13px] text-[color:var(--pe-ink-3)] truncate">
-                    {i.company ? i.company : (i.unit ? i.unit : "")}
+              {/* ---- Mobile ---- */}
+              <div className="md:hidden p-4">
+                <div className="flex items-center gap-3">
+                  <PeAvatar name={i.name} tone={avatarTone} size={46} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[16px] font-bold text-[color:var(--pe-ink)] truncate tracking-[-0.01em]">{i.name}</div>
+                    <div className="text-[13px] text-[color:var(--pe-ink-3)] truncate">{i.company}</div>
                   </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[11px] uppercase tracking-wider text-[color:var(--pe-ink-3)] font-semibold">In stock</div>
+                    <div className="text-[22px] font-extrabold tabular-nums leading-none mt-0.5" style={{ color: stockColor }}>{i.stock}</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  <PriceBox label="You buy at" value={i.lp} />
+                  <PriceBox label="You sell at" value={i.ls} tone="good" />
+                </div>
+                <div className="flex items-center gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+                  {stockBadge
+                    ? <PeStatusPill tone={stockState === "out" ? "bad" : "warn"} label={stockBadge} />
+                    : (margin != null && <PeStatusPill tone={margin >= 0 ? "green" : "bad"} label={`${margin >= 0 ? "+" : ""}${margin}% margin`} />)}
+                  <div className="flex-1" />
+                  {actionBtns}
+                </div>
+              </div>
+
+              {/* ---- Desktop ---- */}
+              <div className="hidden md:flex p-5 items-center gap-4">
+                <PeAvatar name={i.name} tone={avatarTone} size={48} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[18px] font-bold text-[color:var(--pe-ink)] truncate tracking-[-0.01em]">{i.name}</div>
+                  <div className="text-[13px] text-[color:var(--pe-ink-3)] truncate">{i.company}</div>
                   <div className="mt-3 flex items-end gap-5 flex-wrap">
                     <div>
                       <div className="text-[11px] uppercase tracking-wider text-[color:var(--pe-ink-3)] font-semibold">You buy at</div>
-                      <div className="text-[15px] font-bold text-[color:var(--pe-ink)] tabular-nums">
-                        {i.lp != null ? fmtINR(i.lp) : "—"}
-                      </div>
+                      <div className="text-[15px] font-bold text-[color:var(--pe-ink)] tabular-nums">{i.lp != null ? fmtINR(i.lp) : "—"}</div>
                     </div>
                     <div>
                       <div className="text-[11px] uppercase tracking-wider text-[color:var(--pe-ink-3)] font-semibold">You sell at</div>
-                      <div className="text-[15px] font-bold tabular-nums" style={{ color: "var(--pe-good)" }}>
-                        {i.ls != null ? fmtINR(i.ls) : "—"}
-                      </div>
+                      <div className="text-[15px] font-bold tabular-nums" style={{ color: "var(--pe-good)" }}>{i.ls != null ? fmtINR(i.ls) : "—"}</div>
                     </div>
                     {margin != null && (
-                      <div
-                        className="text-[12.5px] font-semibold tabular-nums"
-                        style={{ color: margin >= 0 ? "var(--pe-good)" : "var(--pe-bad)" }}
-                      >
+                      <div className="text-[12.5px] font-semibold tabular-nums" style={{ color: margin >= 0 ? "var(--pe-good)" : "var(--pe-bad)" }}>
                         {margin >= 0 ? "+" : ""}{margin}% margin
                       </div>
                     )}
                   </div>
                 </div>
-
-                {/* Stock */}
                 <div className="text-right shrink-0">
                   <div className="text-[11px] uppercase tracking-wider text-[color:var(--pe-ink-3)] font-semibold">In stock</div>
-                  <div
-                    className="text-[28px] md:text-[30px] font-extrabold tabular-nums leading-none mt-1 tracking-[-0.02em]"
-                    style={{ color: stockColor }}
-                  >
-                    {i.stock}
-                  </div>
-                  {stockBadge && (
-                    <div className="mt-1 text-[12px] font-semibold" style={{ color: stockColor }}>
-                      {stockBadge}
-                    </div>
-                  )}
+                  <div className="text-[30px] font-extrabold tabular-nums leading-none mt-1 tracking-[-0.02em]" style={{ color: stockColor }}>{i.stock}</div>
+                  {stockBadge && <div className="mt-1 text-[12px] font-semibold" style={{ color: stockColor }}>{stockBadge}</div>}
                 </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-1.5 md:gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                  {canEdit && (
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditing(i); setOpen(true); }}
-                      className="inline-flex items-center gap-2 h-10 px-3 sm:px-4 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)]"
-                    >
-                      <Pencil className="h-4 w-4" />
-                      <span className="hidden sm:inline">Edit</span>
-                    </button>
-                  )}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-2 h-10 px-3 sm:px-4 rounded-xl border border-[color:var(--pe-line)] bg-card text-[13px] font-semibold text-[color:var(--pe-ink)] hover:bg-[color:var(--pe-bg)]"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                        <span className="hidden sm:inline">More</span>
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuItem onClick={goToDetail}>View details</DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <div className="px-1 py-1">
-                        <AdminDelete
-                          label="item"
-                          detail={detail}
-                          onConfirm={() => set((d) => ({ ...d, items: d.items.filter((x) => x.id !== i.id) }))}
-                        />
-                      </div>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  {actionBtns}
                 </div>
               </div>
             </div>

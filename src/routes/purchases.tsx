@@ -1,6 +1,5 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,9 +10,10 @@ import { EntityPicker } from "@/components/EntityPicker";
 import { useDB, today, fmtINR, fmtDate, findItem, findDealer, itemLabel, newId, nowStamp, stockOf, type Purchase } from "@/lib/store";
 import { AdminDelete } from "@/components/AdminDelete";
 import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { NumberInput } from "@/components/ui/number-input";
+import { PeAvatar } from "@/components/ui/pe";
 
 export const Route = createFileRoute("/purchases")({
   head: () => ({ meta: [{ title: "Purchases — Shop Manager" }] }),
@@ -34,7 +34,7 @@ function PurchasesPage() {
     <>
       <PageHeader title="Purchases" subtitle="Stock you bought from dealers" action={canWrite ? <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus />New</Button> : null} />
 
-      <div className="grid gap-2">
+      <div className="grid gap-3">
         {list.map((p) => {
           const item = findItem(db, p.itemId);
           const dealer = findDealer(db, p.dealerId);
@@ -42,40 +42,76 @@ function PurchasesPage() {
           const remainingStock = p.itemId ? stockOf(db, p.itemId) - p.qty : 0;
           const wouldGoNegative = p.itemId && remainingStock < 0;
           const shortBy = wouldGoNegative ? Math.abs(remainingStock) : 0;
+          const itemName = item ? itemLabel(item) : "—";
+
+          const editBtn = canEdit ? (
+            <button
+              onClick={() => { setEditing(p); setOpen(true); }}
+              aria-label="Edit purchase"
+              className="inline-flex items-center justify-center h-9 w-9 rounded-xl border border-[color:var(--pe-line)] text-[color:var(--pe-ink-2)] hover:bg-[color:var(--pe-bg)]"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+          ) : null;
+          const deleteBtn = (
+            <AdminDelete
+              label="purchase"
+              requireReason
+              blockReason={wouldGoNegative && !isAdmin ? `Can't delete — ${shortBy} unit(s) from this purchase have already been sold. Edit the qty/rate instead, or ask an admin.` : undefined}
+              detail={wouldGoNegative && isAdmin ? `Warning: deleting this will make stock go negative by ${shortBy}. Only do this if the purchase was never received. Edit instead if you just want to fix the qty/rate.` : undefined}
+              onConfirm={(reason) => {
+                set((d) => ({ ...d, purchases: d.purchases.filter((x) => x.id !== p.id) }));
+                if (reason) toast.success(`Purchase deleted — ${reason}`);
+              }}
+            />
+          );
+
           return (
-            <Card key={p.id}>
-              <CardContent className="p-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{item ? itemLabel(item) : "—"}</div>
-                  <div className="text-xs text-muted-foreground">From {dealer?.name ?? "—"} · {fmtDate(p.date)} · by {p.addedBy}</div>
-                </div>
-                <div className="text-right flex items-start gap-1">
-                  <div>
-                    <div className="text-sm tabular-nums">{p.qty} × {fmtINR(p.rate)}</div>
-                    <div className="text-sm font-semibold tabular-nums">{fmtINR(p.qty * p.rate)}</div>
+            <div
+              key={p.id}
+              className="rounded-2xl border border-[color:var(--pe-line)] bg-card"
+              style={{ boxShadow: "0 1px 2px rgba(20,32,29,.04), 0 4px 16px rgba(20,32,29,.05)" }}
+            >
+              {/* ---- Mobile ---- */}
+              <div className="md:hidden p-4">
+                <div className="flex items-center gap-3">
+                  <PeAvatar name={item?.name ?? "?"} tone="info" size={44} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[15.5px] font-bold text-[color:var(--pe-ink)] truncate">{itemName}</div>
+                    <div className="text-[12.5px] text-[color:var(--pe-ink-3)] truncate flex items-center gap-1.5">
+                      <Truck className="h-3.5 w-3.5 shrink-0" /> {dealer?.name ?? "—"} · {fmtDate(p.date)}
+                    </div>
                   </div>
-                  {canEdit && (
-                    <button
-                      onClick={() => { setEditing(p); setOpen(true); }}
-                      aria-label="Edit purchase"
-                      className="inline-flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                  )}
-                  <AdminDelete
-                    label="purchase"
-                    requireReason
-                    blockReason={wouldGoNegative && !isAdmin ? `Can't delete — ${shortBy} unit(s) from this purchase have already been sold. Edit the qty/rate instead, or ask an admin.` : undefined}
-                    detail={wouldGoNegative && isAdmin ? `Warning: deleting this will make stock go negative by ${shortBy}. Only do this if the purchase was never received. Edit instead if you just want to fix the qty/rate.` : undefined}
-                    onConfirm={(reason) => {
-                      set((d) => ({ ...d, purchases: d.purchases.filter((x) => x.id !== p.id) }));
-                      if (reason) toast.success(`Purchase deleted — ${reason}`);
-                    }}
-                  />
+                  <div className="flex items-center gap-1.5 shrink-0">{editBtn}{deleteBtn}</div>
                 </div>
-              </CardContent>
-            </Card>
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-[color:var(--pe-line-2)]">
+                  <div className="text-[12px] text-[color:var(--pe-ink-3)]">by {p.addedBy}</div>
+                  <div className="text-right">
+                    <div className="text-[12px] text-[color:var(--pe-ink-3)] tabular-nums">{p.qty} × {fmtINR(p.rate)}</div>
+                    <div className="text-[18px] font-extrabold tabular-nums text-[color:var(--pe-ink)]">{fmtINR(p.qty * p.rate)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ---- Desktop ---- */}
+              <div className="hidden md:flex p-4 items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <PeAvatar name={item?.name ?? "?"} tone="info" size={44} />
+                  <div className="min-w-0">
+                    <div className="font-bold text-[color:var(--pe-ink)] truncate">{itemName}</div>
+                    <div className="text-xs text-[color:var(--pe-ink-3)] flex items-center gap-1.5"><Truck className="h-3.5 w-3.5" /> From {dealer?.name ?? "—"} · {fmtDate(p.date)} · by {p.addedBy}</div>
+                  </div>
+                </div>
+                <div className="text-right flex items-center gap-3">
+                  <div>
+                    <div className="text-sm tabular-nums text-[color:var(--pe-ink-3)]">{p.qty} × {fmtINR(p.rate)}</div>
+                    <div className="text-[18px] font-extrabold tabular-nums text-[color:var(--pe-ink)]">{fmtINR(p.qty * p.rate)}</div>
+                  </div>
+                  {editBtn}
+                  {deleteBtn}
+                </div>
+              </div>
+            </div>
           );
         })}
         {list.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No purchases yet.</p>}

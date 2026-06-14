@@ -1,0 +1,196 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Pioneer Enterprises — cream + emerald design system.
+ * Colors stay close to the source prototype so every shadcn component
+ * (Card, Button, Tabs, Dialog, Input, Toast) picks up the new look
+ * automatically without per-component restyling.
+ */
+
+@theme inline {
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.85rem;
+
+  /* Pioneer palette (hex equivalents in oklch) */
+  --pe-green: #0E6B57;
+  --pe-green-dark: #0A4E40;
+  --pe-green-soft: #E6F2EE;
+  --pe-green-soft-2: #D2E8E1;
+  --pe-ink: #16201D;
+  --pe-ink-2: #4A554F;
+  --pe-ink-3: #7C857F;
+  --pe-line: #E7E4DA;
+  --pe-line-2: #EFEDE4;
+  --pe-bg: #F6F4EC;
+  --pe-surface: #FFFFFF;
+  --pe-good: #15803D;
+  --pe-good-bg: #E4F6E9;
+  --pe-warn: #B45309;
+  --pe-warn-bg: #FBF0DA;
+  --pe-bad: #C2362B;
+  --pe-bad-bg: #FBE7E4;
+  --pe-info: #1D5FB0;
+  --pe-info-bg: #E5EEFA;
+
+  /* shadcn tokens mapped onto Pioneer palette */
+  --background: #F6F4EC;
+  --foreground: #16201D;
+  --card: #FFFFFF;
+  --card-foreground: #16201D;
+  --popover: #FFFFFF;
+  --popover-foreground: #16201D;
+  --primary: #0E6B57;
+  --primary-foreground: #FFFFFF;
+  --secondary: #FCFBF6;
+  --secondary-foreground: #16201D;
+  --muted: #EFEDE4;
+  --muted-foreground: #7C857F;
+  --accent: #E6F2EE;
+  --accent-foreground: #0A4E40;
+  --destructive: #C2362B;
+  --destructive-foreground: #FFFFFF;
+  --border: #E7E4DA;
+  --input: #E7E4DA;
+  --ring: #0E6B57;
+  --chart-1: #0E6B57;
+  --chart-2: #1D5FB0;
+  --chart-3: #B45309;
+  --chart-4: #C2362B;
+  --chart-5: #7C857F;
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #16201D;
+  --sidebar-primary: #0E6B57;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #F2F0E7;
+  --sidebar-accent-foreground: #16201D;
+  --sidebar-border: #E7E4DA;
+  --sidebar-ring: #0E6B57;
+}
+
+.dark {
+  --background: #0F1614;
+  --foreground: #F4F2EA;
+  --card: #161F1C;
+  --card-foreground: #F4F2EA;
+  --popover: #161F1C;
+  --popover-foreground: #F4F2EA;
+  --primary: #2EBE9A;
+  --primary-foreground: #0F1614;
+  --secondary: #1B2724;
+  --secondary-foreground: #F4F2EA;
+  --muted: #1B2724;
+  --muted-foreground: #95A19B;
+  --accent: #1B2724;
+  --accent-foreground: #F4F2EA;
+  --destructive: #E5685D;
+  --destructive-foreground: #0F1614;
+  --border: #1F2C28;
+  --input: #1F2C28;
+  --ring: #2EBE9A;
+  --sidebar: #131B19;
+  --sidebar-foreground: #F4F2EA;
+  --sidebar-primary: #2EBE9A;
+  --sidebar-primary-foreground: #0F1614;
+  --sidebar-accent: #1B2724;
+  --sidebar-accent-foreground: #F4F2EA;
+  --sidebar-border: #1F2C28;
+  --sidebar-ring: #2EBE9A;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  button { font-family: inherit; }
+  ::selection { background: rgba(14, 107, 87, .18); }
+}
+
+/* ---------- Pioneer utility classes (used across screens) ---------- */
+.pe-scroll::-webkit-scrollbar { width: 12px; }
+.pe-scroll::-webkit-scrollbar-thumb { background: #DDD9CC; border-radius: 8px; border: 3px solid #F6F4EC; }
+.pe-scroll::-webkit-scrollbar-track { background: transparent; }
+
+.pe-card-hover { transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease, background .14s ease; }
+.pe-card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(20, 32, 29, .10); }
+.pe-nav-idle:hover { background: #F2F0E7 !important; color: var(--pe-ink) !important; }
+
+.pe-4grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.pe-3grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.pe-2grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.pe-money-hero { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.pe-qa-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.pe-qa-big { grid-column: 1 / -1; }
+
+@media (max-width: 980px) {
+  .pe-4grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 620px) {
+  .pe-3grid { grid-template-columns: 1fr; }
+  .pe-money-hero { grid-template-columns: 1fr; }
+  .pe-2grid { grid-template-columns: 1fr; }
+  .pe-qa-grid { grid-template-columns: 1fr; }
+}
+
+.pe-big main { zoom: 1.12; }

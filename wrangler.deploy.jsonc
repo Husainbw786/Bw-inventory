@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tanstack-start-app",
+  "compatibility_date": "2025-09-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "dist/server/server.js",
+  "assets": { "directory": "dist/client" },
+  "vars": {
+    "SUPABASE_URL": "https://wwerwoikflqopyrbsgva.supabase.co",
+    "SUPABASE_PROJECT_ID": "wwerwoikflqopyrbsgva",
+    "SUPABASE_PUBLISHABLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind3ZXJ3b2lrZmxxb3B5cmJzZ3ZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzODI5NjAsImV4cCI6MjA5Njk1ODk2MH0.dgHOEiiEzv4vwK1MOBVN8UybFpZnObpHciLQ25mGeSg"
+  }
+}

@@ -1,0 +1,33 @@
+name: Deploy to Cloudflare
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          # Public Supabase keys (anon/publishable — safe to expose; they ship in the client bundle).
+          VITE_SUPABASE_URL: "https://wwerwoikflqopyrbsgva.supabase.co"
+          VITE_SUPABASE_PROJECT_ID: "wwerwoikflqopyrbsgva"
+          VITE_SUPABASE_PUBLISHABLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind3ZXJ3b2lrZmxxb3B5cmJzZ3ZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzODI5NjAsImV4cCI6MjA5Njk1ODk2MH0.dgHOEiiEzv4vwK1MOBVN8UybFpZnObpHciLQ25mGeSg"
+
+      - name: Deploy to Cloudflare Workers
+        run: npx wrangler deploy -c wrangler.deploy.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "474ec25fd6740601eb30f354596c81a3"

@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.enforce_sale_line_stock() FROM PUBLIC, anon, authenticated;

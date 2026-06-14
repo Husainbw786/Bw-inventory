@@ -1,0 +1,1 @@
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS extra_expenses_charge_customer boolean NOT NULL DEFAULT false;

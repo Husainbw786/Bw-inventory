@@ -9,10 +9,11 @@ import { PageHeader } from "@/components/AppLayout";
 import { useDB, newId, nowStamp, fmtINR, usageCount, type Person, billTotal } from "@/lib/store";
 import { AdminDelete } from "@/components/AdminDelete";
 import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
-import { Plus, Phone, MapPin, Pencil } from "lucide-react";
+import { Plus, Phone, MapPin, Pencil, Contact } from "lucide-react";
 import { toast } from "sonner";
 import { PhoneInput, isValidPhone } from "@/components/ui/phone-input";
 import { PeAvatar } from "@/components/ui/pe";
+import { contactsSupported, pickContacts } from "@/lib/contacts";
 
 export const Route = createFileRoute("/directory")({
   head: () => ({ meta: [{ title: "Directory — Shop Manager" }] }),
@@ -27,12 +28,79 @@ function DirectoryPage() {
   const [tab, setTab] = React.useState<"dealers" | "customers">("dealers");
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Person | null>(null);
+  const [canImport, setCanImport] = React.useState(false);
+  const [importing, setImporting] = React.useState(false);
+
+  React.useEffect(() => {
+    setCanImport(contactsSupported());
+  }, []);
 
   const list = tab === "dealers" ? db.dealers : db.customers;
 
+  const handleImport = async () => {
+    const kind = tab === "dealers" ? "dealer" : "customer";
+    try {
+      setImporting(true);
+      const picked = await pickContacts();
+      if (picked.length === 0) return;
+
+      const digits = (s?: string) => (s ? s.replace(/\D/g, "") : "");
+      const existing = tab === "dealers" ? db.dealers : db.customers;
+      const seenPhones = new Set(existing.map((p) => digits(p.phone)).filter(Boolean));
+      const seenNames = new Set(existing.map((p) => p.name.trim().toLowerCase()));
+
+      const toAdd: Person[] = [];
+      let skipped = 0;
+      for (const c of picked) {
+        const phoneOk = c.phone && isValidPhone(c.phone) ? c.phone : undefined;
+        const d = digits(phoneOk);
+        const nameKey = c.name.trim().toLowerCase();
+        const dup = (d && seenPhones.has(d)) || (!d && seenNames.has(nameKey));
+        if (dup) {
+          skipped++;
+          continue;
+        }
+        if (d) seenPhones.add(d);
+        seenNames.add(nameKey);
+        toAdd.push({ id: newId(), name: c.name, phone: phoneOk, createdAt: nowStamp() });
+      }
+
+      if (toAdd.length > 0) {
+        set((d) =>
+          tab === "dealers"
+            ? { ...d, dealers: [...d.dealers, ...toAdd] }
+            : { ...d, customers: [...d.customers, ...toAdd] },
+        );
+        toast.success(`Added ${toAdd.length} ${kind}${toAdd.length === 1 ? "" : "s"}`);
+      }
+      if (skipped > 0) toast.info(`${skipped} already existed, skipped`);
+      if (toAdd.length === 0 && skipped === 0) toast.info("Nothing to import");
+    } catch {
+      toast.error("Couldn't read contacts");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <>
-      <PageHeader title="Directory" subtitle="Dealers & customers" action={canWrite ? <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus />Add</Button> : null} />
+      <PageHeader
+        title="Directory"
+        subtitle="Dealers & customers"
+        action={
+          canWrite ? (
+            <div className="flex gap-2">
+              {canImport && (
+                <Button variant="outline" onClick={handleImport} disabled={importing}>
+                  <Contact />
+                  Import
+                </Button>
+              )}
+              <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus />Add</Button>
+            </div>
+          ) : null
+        }
+      />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
         <TabsList className="grid grid-cols-2 w-full mb-3">

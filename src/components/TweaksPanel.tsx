@@ -64,7 +64,7 @@ export function TweaksPanel() {
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Open appearance tweaks"
-        className="fixed bottom-20 md:bottom-5 right-4 z-40 h-11 w-11 rounded-full bg-card border border-[color:var(--pe-line)] shadow-lg flex items-center justify-center text-[color:var(--pe-ink-2)] hover:text-[color:var(--pe-green)] hover:scale-105 transition print:hidden"
+        className="fixed bottom-5 right-4 z-40 h-11 w-11 rounded-full bg-card border border-[color:var(--pe-line)] shadow-lg hidden md:flex items-center justify-center text-[color:var(--pe-ink-2)] hover:text-[color:var(--pe-green)] hover:scale-105 transition print:hidden"
       >
         <Settings2 className="h-5 w-5" />
       </button>

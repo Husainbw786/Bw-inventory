@@ -1,9 +1,9 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { fmtDate, findCustomer, findItem, itemLabel, billTotal, taxableBase, gstAmount, type Sale } from "./store";
+import { fmtDate, findCustomer, findItem, itemLabel, billTotal, taxableBase, gstAmount, gstSplit, gstRateSummary, billNoLabel, type Sale } from "./store";
 
 type DB = {
-  shop: { name: string; address: string; phone: string };
+  shop: { name: string; address: string; phone: string; gstin?: string };
   customers: any[];
   items: any[];
 };
@@ -64,12 +64,12 @@ function buildDoc(db: DB, sale: Sale) {
   const customer = findCustomer(db as any, sale.customerId);
   const base = taxableBase(sale);
   const gst = gstAmount(sale);
-  const rate = sale.gstRate ?? 0;
+  const split = gstSplit(sale, db.shop.gstin, customer?.gstin);
   const total = billTotal(sale);
   const roundedTotal = Math.round(total);
   const roundOff = roundedTotal - total;
   const totalQty = sale.lines.reduce((a, l) => a + l.qty, 0);
-  const invNo = "#" + sale.id.slice(0, 8).toUpperCase();
+  const invNo = billNoLabel(sale);
 
   doc.setLineWidth(0.6);
 
@@ -122,7 +122,7 @@ function buildDoc(db: DB, sale: Sale) {
     const wrapped = doc.splitTextToSize(String(db.shop.address), sellerR - M - 12);
     doc.text(wrapped, M + 6, sy); sy += wrapped.length * 11;
   } else { lbl("STREET ADDRESS:", "", M + 6, sy); sy += 12; }
-  lbl("GSTIN NO:", "", M + 6, sy); sy += 12;
+  lbl("GSTIN NO:", db.shop.gstin || "", M + 6, sy); sy += 12;
   lbl("EMAIL ADDRESS:", "", M + 6, sy); sy += 12;
   lbl("PHONE NO:", db.shop.phone || "", M + 6, sy);
 
@@ -167,7 +167,7 @@ function buildDoc(db: DB, sale: Sale) {
     const wrapped = doc.splitTextToSize(String(customer.address), buyerR - M - 12);
     doc.text(wrapped, M + 6, by); by += wrapped.length * 11;
   } else { lbl("STREET ADDRESS:", "", M + 6, by); by += 12; }
-  lbl("GSTIN NO:", "", M + 6, by); by += 12;
+  lbl("GSTIN NO:", customer?.gstin || "", M + 6, by); by += 12;
   lbl("PHONE NO:", customer?.phone || "", M + 6, by);
   // terms
   doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...INK);
@@ -180,7 +180,7 @@ function buildDoc(db: DB, sale: Sale) {
     return [
       String(i + 1),
       it ? itemLabel(it) : "—",
-      "",                       // HSN — blank label
+      it?.hsn ?? "",
       String(l.qty),
       it?.unit ?? "",
       money(l.rate),
@@ -237,9 +237,15 @@ function buildDoc(db: DB, sale: Sale) {
 
   totRow("Total Qty", String(totalQty), { fill: true });
   totRow("Sub Total", money(base), { fill: true, bold: true });
-  if (rate > 0) {
-    totRow(`Output CGST (${rate / 2}%)`, money(gst / 2), { fill: true });
-    totRow(`Output SGST (${rate / 2}%)`, money(gst / 2), { fill: true });
+  if (gst > 0) {
+    const uniform = gstRateSummary(sale);
+    const pct = (n: number) => (uniform != null && uniform > 0 ? ` (${n}%)` : "");
+    if (split.inter) {
+      totRow(`Output IGST${pct(uniform ?? 0)}`, money(split.igst), { fill: true });
+    } else {
+      totRow(`Output CGST${pct((uniform ?? 0) / 2)}`, money(split.cgst), { fill: true });
+      totRow(`Output SGST${pct((uniform ?? 0) / 2)}`, money(split.sgst), { fill: true });
+    }
     totRow("Total Amount", money(total), { fill: true });
     totRow("Round Off", money(roundOff), { fill: true });
   } else {
@@ -250,7 +256,7 @@ function buildDoc(db: DB, sale: Sale) {
   // left words
   let wy = totalsTop + 12;
   doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...INK);
-  if (rate > 0) {
+  if (gst > 0) {
     doc.setFont("helvetica", "bold"); doc.text("TAX AMOUNT IN WORDS:", M, wy); wy += 11;
     doc.setFont("helvetica", "normal");
     const tw = doc.splitTextToSize(rupeesInWords(gst), colSplit - M - 8);
@@ -288,7 +294,7 @@ export function downloadBillPdf(db: DB, sale: Sale) {
   const doc = buildDoc(db, sale);
   const customer = findCustomer(db as any, sale.customerId);
   const name = (customer?.name ?? "bill").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
-  doc.save(`invoice-${name}-${sale.id.slice(0, 6)}.pdf`);
+  doc.save(`invoice-${name}-${billNoLabel(sale).replace("#", "")}.pdf`);
 }
 
 export function printBillPdf(db: DB, sale: Sale) {

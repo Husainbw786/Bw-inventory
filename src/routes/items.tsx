@@ -3,7 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/AppLayout";
-import { useDB, stockOf, lastPurchaseRate, lastSaleRate, fmtINR, itemLabel, newId, nowStamp, usageCount, type Item } from "@/lib/store";
+import { useDB, stockOf, lastPurchaseRate, lastSaleRate, fmtINR, itemLabel, newId, nowStamp, usageCount, GST_SLABS, type Item } from "@/lib/store";
 import { AdminDelete } from "@/components/AdminDelete";
 import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,8 +11,9 @@ import { Label } from "@/components/ui/label";
 import { Plus, Search, Pencil, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { NumberInput } from "@/components/ui/number-input";
-import { PeAvatar, PeStatusPill, type PeTone } from "@/components/ui/pe";
+import { PeAvatar, PeStatusPill, type PeTone, PeFormError } from "@/components/ui/pe";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 
 export const Route = createFileRoute("/items")({
@@ -45,7 +46,7 @@ function ItemsPage() {
   const [editing, setEditing] = React.useState<Item | null>(null);
 
   const list = db.items
-    .map((i) => ({ ...i, stock: stockOf(db, i.id), lp: lastPurchaseRate(db, i.id), ls: lastSaleRate(db, i.id) }))
+    .map((i) => ({ ...i, stock: stockOf(db, i.id), lp: lastPurchaseRate(db, i.id), ls: i.price ?? lastSaleRate(db, i.id) }))
     .filter((i) => (q ? itemLabel(i).toLowerCase().includes(q.toLowerCase()) : true))
     .sort((a, b) => itemLabel(a).localeCompare(itemLabel(b)));
 
@@ -115,6 +116,13 @@ function ItemsPage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem onClick={goToDetail}>View details</DropdownMenuItem>
+                  {canWrite && (
+                    <DropdownMenuItem
+                      onClick={() => navigate({ to: "/items/$id", params: { id: i.id }, search: { adjust: "1" } })}
+                    >
+                      Adjust stock
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <div className="px-1 py-1">
                     <AdminDelete
@@ -213,37 +221,51 @@ function ItemDialog({ open, onOpenChange, editing }: { open: boolean; onOpenChan
   const [company, setCompany] = React.useState("");
   const [unit, setUnit] = React.useState("pc");
   const [low, setLow] = React.useState("5");
+  const [hsn, setHsn] = React.useState("");
+  const [gstSlab, setGstSlab] = React.useState("none"); // "none" | "0" | "5" | "12" | "18" | "28"
+  const [price, setPrice] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
+      setSaving(false);
+      setError(null);
       setName(editing?.name ?? "");
       setCompany(editing?.company ?? "");
       setUnit(editing?.unit ?? "pc");
       setLow(String(editing?.lowStock ?? 5));
+      setHsn(editing?.hsn ?? "");
+      setGstSlab(editing?.gstRate != null ? String(editing.gstRate) : "none");
+      setPrice(editing?.price != null ? String(editing.price) : "");
     }
   }, [open, editing]);
 
-  const submit = () => {
+  const submit = async () => {
     if (!name.trim() || !company.trim()) {
-      toast.error("Item name and company are required");
+      setError("Item name and company are required");
       return;
     }
-    if (editing) {
-      const patch = { name: name.trim(), company: company.trim(), unit: unit.trim() || "pc", lowStock: Number(low) || 5 };
-      set((db) => ({ ...db, items: db.items.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)) }));
-      toast.success("Item updated");
-    } else {
-      const item: Item = {
-        id: newId(),
-        name: name.trim(),
-        company: company.trim(),
-        unit: unit.trim() || "pc",
-        lowStock: Number(low) || 5,
-        createdAt: nowStamp(),
-      };
-      set((db) => ({ ...db, items: [...db.items, item] }));
-      toast.success("Item added");
+    const fields = {
+      name: name.trim(),
+      company: company.trim(),
+      unit: unit.trim() || "pc",
+      lowStock: Number(low) || 5,
+      hsn: hsn.trim() || undefined,
+      gstRate: gstSlab === "none" ? null : Number(gstSlab),
+      price: price.trim() === "" ? null : Math.max(0, Number(price) || 0),
+    };
+    setSaving(true);
+    setError(null);
+    const res = editing
+      ? await set((db) => ({ ...db, items: db.items.map((x) => (x.id === editing.id ? { ...x, ...fields } : x)) }))
+      : await set((db) => ({ ...db, items: [...db.items, { id: newId(), ...fields, createdAt: nowStamp() } as Item] }));
+    setSaving(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
     }
+    toast.success(editing ? "Item updated" : "Item added");
     onOpenChange(false);
   };
 
@@ -272,10 +294,34 @@ function ItemDialog({ open, onOpenChange, editing }: { open: boolean; onOpenChan
               <NumberInput value={low} onValueChange={setLow} allowDecimal={false} min={0} max={99999} />
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>Selling price (₹)</Label>
+              <NumberInput value={price} onValueChange={setPrice} min={0} max={10000000} placeholder="auto-fills bills" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>GST slab</Label>
+              <Select value={gstSlab} onValueChange={setGstSlab}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not set</SelectItem>
+                  {GST_SLABS.map((r) => (
+                    <SelectItem key={r} value={String(r)}>{r}%</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>HSN/SAC code</Label>
+            <Input value={hsn} onChange={(e) => setHsn(e.target.value.replace(/[^0-9A-Za-z]/g, "").slice(0, 8))} placeholder="e.g. 8708" />
+            <p className="text-xs text-muted-foreground">Printed on GST invoices. The slab is applied per item on bills with GST enabled.</p>
+          </div>
         </div>
+        <PeFormError message={error} />
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit}>Save</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

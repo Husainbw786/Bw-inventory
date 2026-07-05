@@ -87,3 +87,14 @@ export function PeSectionLabel({ children, first }: { children: React.ReactNode;
     >{children}</div>
   );
 }
+
+// Inline save-error banner for dialog forms: the dialog stays open and shows
+// what went wrong, instead of closing and losing the user's input.
+export function PeFormError({ message }: { message?: string | null }) {
+  if (!message) return null;
+  return (
+    <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] font-medium text-red-700">
+      {message}
+    </div>
+  );
+}

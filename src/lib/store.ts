@@ -14,7 +14,8 @@ import { mirrorToSheets } from "./sheets.functions";
 type MirrorJob = {
   table:
     | "items" | "dealers" | "customers" | "purchases"
-    | "sales" | "sale_lines" | "expenses";
+    | "sales" | "sale_lines" | "expenses"
+    | "payments" | "stock_adjustments";
   action: "insert" | "update" | "delete";
   id: string;
   row?: Record<string, any>;
@@ -33,12 +34,18 @@ function backupMirror(jobs: MirrorJob[], businessId: string) {
 
 export type ID = string;
 
+// GST slabs allowed on items (percent).
+export const GST_SLABS = [0, 5, 12, 18, 28] as const;
+
 export type Item = {
   id: ID;
   name: string;
   company: string;
   unit?: string;
   lowStock?: number;
+  hsn?: string; // HSN/SAC code printed on invoices
+  gstRate?: number | null; // GST slab; null = not set (sale-level rate applies)
+  price?: number | null; // default selling price
   createdAt: string;
   createdBy?: string | null;
 };
@@ -49,6 +56,8 @@ export type Person = {
   phone?: string;
   address?: string;
   notes?: string;
+  gstin?: string;
+  openingBalance?: number; // khata starting point: + = they owe us (customer) / we owe them (dealer)
   createdAt: string;
   createdBy?: string | null;
 };
@@ -66,7 +75,9 @@ export type Purchase = {
   createdBy?: string | null;
 };
 
-export type SaleLine = { id?: ID; itemId: ID | null; qty: number; rate: number };
+// gstRate is snapshotted from the item's slab when the sale is saved (null =
+// legacy line, taxed at the sale-level rate) so slab edits don't rewrite history.
+export type SaleLine = { id?: ID; itemId: ID | null; qty: number; rate: number; gstRate?: number | null };
 
 export type Sale = {
   id: ID;
@@ -75,12 +86,54 @@ export type Sale = {
   lines: SaleLine[];
   notes?: string;
   isBill: boolean;
+  billNo?: number | null; // assigned by the DB when isBill becomes true; read-only here
   paymentReceived: boolean;
   amountPaid: number;
   extraExpenses: number;
   extraExpensesChargeCustomer: boolean;
   gstRate?: number | null;
   archived: boolean;
+  addedBy: string;
+  createdAt: string;
+  createdBy?: string | null;
+};
+
+// Dated money movement in the party ledger (khata). Customer payments are money
+// received; dealer payments are money paid out. Negative amount = correction.
+// Rows with saleId are auto-created by setDB from amountPaid changes — UI code
+// must never add sale-linked payments itself, only standalone ones (saleId null).
+export type PaymentMode = "cash" | "upi" | "bank" | "cheque" | "other";
+export const PAYMENT_MODES: PaymentMode[] = ["cash", "upi", "bank", "cheque", "other"];
+export type Payment = {
+  id: ID;
+  date: string;
+  partyType: "customer" | "dealer";
+  partyId: ID;
+  saleId?: ID | null;
+  amount: number;
+  mode?: PaymentMode | null;
+  notes?: string;
+  addedBy: string;
+  createdAt: string;
+  createdBy?: string | null;
+};
+
+// Manual stock movement: qty > 0 adds stock, qty < 0 removes it.
+export type AdjustmentReason = "opening" | "correction" | "damage" | "sale_return" | "purchase_return";
+export const ADJUSTMENT_REASONS: { value: AdjustmentReason; label: string; sign: 1 | -1 }[] = [
+  { value: "opening", label: "Opening stock", sign: 1 },
+  { value: "sale_return", label: "Sale return (back in)", sign: 1 },
+  { value: "purchase_return", label: "Purchase return (sent back)", sign: -1 },
+  { value: "damage", label: "Damage / loss", sign: -1 },
+  { value: "correction", label: "Count correction", sign: 1 },
+];
+export type StockAdjustment = {
+  id: ID;
+  date: string;
+  itemId: ID;
+  qty: number;
+  reason: AdjustmentReason;
+  notes?: string;
   addedBy: string;
   createdAt: string;
   createdBy?: string | null;
@@ -105,7 +158,9 @@ export type DB = {
   purchases: Purchase[];
   sales: Sale[];
   expenses: Expense[];
-  shop: { name: string; address: string; phone: string };
+  payments: Payment[];
+  adjustments: StockAdjustment[];
+  shop: { name: string; address: string; phone: string; gstin: string };
   currentUser: string;
 };
 
@@ -113,6 +168,7 @@ const DEFAULT_SHOP = {
   name: "BW Inventory",
   address: "",
   phone: "",
+  gstin: "",
 };
 
 const EMPTY: DB = {
@@ -122,14 +178,46 @@ const EMPTY: DB = {
   purchases: [],
   sales: [],
   expenses: [],
+  payments: [],
+  adjustments: [],
   shop: DEFAULT_SHOP,
   currentUser: "",
 };
 
 const QK = (bid: string) => ["biz-db", bid] as const;
 
+// Schema capability flags, detected on every fetch. False = the DB migrations
+// haven't been applied yet (mid-rollout); writes then omit the new fields so
+// every dialog keeps working against the old schema instead of erroring with
+// "Could not find the '…' column in the schema cache" (PGRST204).
+let hasGstColumns = true;
+let hasPaymentsTable = true;
+let hasAdjustmentsTable = true;
+const MIGRATION_HINT = "Database upgrade pending — apply the latest Supabase migrations to use this feature.";
+
+// Every save resolves to this; dialogs await it and stay open on failure.
+export type SaveResult = { ok: true } | { ok: false; error: string };
+
+// True while the connected database is missing the latest migrations.
+// Refreshed on every fetchAll; the admin upgrade banner keys off this.
+export function schemaUpgradePending() {
+  return !hasGstColumns || !hasPaymentsTable || !hasAdjustmentsTable;
+}
+
+// Turn raw Postgres/PostgREST/network errors into words a shop owner can act on.
+function friendlyError(e: any): string {
+  const msg: string = e?.message ?? String(e);
+  if (e?.code === "PGRST204" || /schema cache/i.test(msg)) return MIGRATION_HINT;
+  if (/failed to fetch|networkerror|load failed|network request/i.test(msg))
+    return "No internet — the change was not saved. Check your connection and try again.";
+  if (/violates row-level security/i.test(msg)) return "You don't have permission to do this.";
+  if (/duplicate key/i.test(msg)) return "This already exists — it may have been saved twice.";
+  if (/JWT|token|not authenticated/i.test(msg)) return "Session expired — please sign in again.";
+  return msg;
+}
+
 async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> {
-  const [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, profilesR] =
+  const [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, paymentsR, adjustmentsR, profilesR, gstProbeR] =
     await Promise.all([
       supabase.from("items").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
       supabase.from("dealers").select("*").eq("business_id", bid).order("created_at"),
@@ -138,12 +226,30 @@ async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> 
       supabase.from("sales").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
       supabase.from("sale_lines").select("*, sales!inner(business_id)").eq("sales.business_id", bid),
       supabase.from("expenses").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
+      supabase.from("payments").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
+      supabase.from("stock_adjustments").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
       supabase.from("profiles").select("id, display_name"),
+      supabase.from("items").select("gst_rate").limit(1), // capability probe: 42703 = old schema
     ]);
 
   for (const r of [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, profilesR]) {
     if (r.error) throw r.error;
   }
+  // Detect a not-yet-migrated DB and degrade instead of blocking the app:
+  // missing tables read as empty, and setDB writes skip the new columns.
+  hasGstColumns = gstProbeR.error?.code !== "42703";
+  hasPaymentsTable = paymentsR.error?.code !== "PGRST205";
+  hasAdjustmentsTable = adjustmentsR.error?.code !== "PGRST205";
+  if (!hasGstColumns || !hasPaymentsTable || !hasAdjustmentsTable) {
+    console.warn("[store] DB migrations pending — running in legacy-schema mode");
+  }
+  const optionalRows = (r: { data: any[] | null; error: { code?: string } | null }): any[] => {
+    if (!r.error) return r.data ?? [];
+    if (r.error.code === "PGRST205") return [];
+    throw r.error;
+  };
+  const paymentsRows = optionalRows(paymentsR);
+  const adjustmentsRows = optionalRows(adjustmentsR);
 
   const nameOf = new Map<string, string>(
     (profilesR.data ?? []).map((p) => [p.id, p.display_name]),
@@ -156,6 +262,9 @@ async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> 
     company: r.company,
     unit: r.unit ?? undefined,
     lowStock: r.low_stock ?? 5,
+    hsn: r.hsn ?? undefined,
+    gstRate: r.gst_rate != null ? Number(r.gst_rate) : null,
+    price: r.price != null ? Number(r.price) : null,
     createdAt: r.created_at,
     createdBy: r.created_by ?? null,
   }));
@@ -166,6 +275,8 @@ async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> 
     phone: r.phone ?? undefined,
     address: r.address ?? undefined,
     notes: r.notes ?? undefined,
+    gstin: r.gstin ?? undefined,
+    openingBalance: r.opening_balance != null ? Number(r.opening_balance) : 0,
     createdAt: r.created_at,
     createdBy: r.created_by ?? null,
   });
@@ -188,7 +299,7 @@ async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> 
   const linesBySale = new Map<string, SaleLine[]>();
   for (const l of linesR.data ?? []) {
     const arr = linesBySale.get(l.sale_id) ?? [];
-    arr.push({ id: l.id, itemId: l.item_id, qty: Number(l.qty), rate: Number(l.rate) });
+    arr.push({ id: l.id, itemId: l.item_id, qty: Number(l.qty), rate: Number(l.rate), gstRate: l.gst_rate != null ? Number(l.gst_rate) : null });
     linesBySale.set(l.sale_id, arr);
   }
   const sales: Sale[] = (salesR.data ?? []).map((r: any) => ({
@@ -198,6 +309,7 @@ async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> 
     lines: linesBySale.get(r.id) ?? [],
     notes: r.notes ?? undefined,
     isBill: r.is_bill,
+    billNo: r.bill_no ?? null,
     paymentReceived: !!r.payment_received,
     amountPaid: Number(r.amount_paid ?? 0),
     extraExpenses: Number(r.extra_expenses ?? 0),
@@ -221,7 +333,33 @@ async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> 
     createdBy: r.created_by ?? null,
   }));
 
-  return { items, dealers, customers, purchases, sales, expenses };
+  const payments: Payment[] = paymentsRows.map((r) => ({
+    id: r.id,
+    date: r.date,
+    partyType: r.party_type as Payment["partyType"],
+    partyId: r.party_id,
+    saleId: r.sale_id ?? null,
+    amount: Number(r.amount),
+    mode: (r.mode as PaymentMode | null) ?? null,
+    notes: r.notes ?? undefined,
+    addedBy: addedBy(r.created_by),
+    createdAt: r.created_at,
+    createdBy: r.created_by ?? null,
+  }));
+
+  const adjustments: StockAdjustment[] = adjustmentsRows.map((r) => ({
+    id: r.id,
+    date: r.date,
+    itemId: r.item_id,
+    qty: Number(r.qty),
+    reason: r.reason as AdjustmentReason,
+    notes: r.notes ?? undefined,
+    addedBy: addedBy(r.created_by),
+    createdAt: r.created_at,
+    createdBy: r.created_by ?? null,
+  }));
+
+  return { items, dealers, customers, purchases, sales, expenses, payments, adjustments };
 }
 
 // Stable stringify (sorts object keys at every level) so reordering the
@@ -258,7 +396,7 @@ function diff<T extends { id: string }>(
   return { added, removed, updated };
 }
 
-export function useDB(): [DB, (u: (db: DB) => DB) => void] {
+export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
   const { user, displayName } = useAuth();
   const { current } = useBusiness();
   const bid = current?.id ?? null;
@@ -279,21 +417,22 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
         name: current?.name ?? DEFAULT_SHOP.name,
         address: current?.address ?? "",
         phone: current?.phone ?? "",
+        gstin: current?.gstin ?? "",
       },
       currentUser: displayName,
     }),
-    [data, displayName, current?.name, current?.address, current?.phone],
+    [data, displayName, current?.name, current?.address, current?.phone, current?.gstin],
   );
 
   const setDB = React.useCallback(
-    (updater: (db: DB) => DB) => {
+    (updater: (db: DB) => DB): Promise<SaveResult> => {
       if (!user) {
         toast.error("Sign in required");
-        return;
+        return Promise.resolve({ ok: false, error: "Sign in required" });
       }
       if (!bid) {
         toast.error("Select a business first");
-        return;
+        return Promise.resolve({ ok: false, error: "Select a business first" });
       }
       const uid = user.id;
       const next = updater(db);
@@ -308,7 +447,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
           const { added, removed, updated } = diff(
             db.items,
             next.items,
-            ["name", "company", "unit", "lowStock"],
+            ["name", "company", "unit", "lowStock", "hsn", "gstRate", "price"],
           );
           if (added.length)
             tasks.push(
@@ -320,6 +459,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
                   company: x.company,
                   unit: x.unit ?? null,
                   low_stock: x.lowStock ?? 5,
+                  ...(hasGstColumns ? { hsn: x.hsn ?? null, gst_rate: x.gstRate ?? null, price: x.price ?? null } : {}),
                   created_by: uid,
                 })),
               ),
@@ -327,10 +467,10 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
           for (const x of added)
             mirrorJobs.push({
               table: "items", action: "insert", id: x.id,
-              row: { id: x.id, name: x.name, company: x.company, unit: x.unit ?? "", low_stock: x.lowStock ?? 5, created_by: uid, created_at: nowIso },
+              row: { id: x.id, name: x.name, company: x.company, unit: x.unit ?? "", low_stock: x.lowStock ?? 5, hsn: x.hsn ?? "", gst_rate: x.gstRate ?? "", price: x.price ?? "", created_by: uid, created_at: nowIso },
             });
           for (const x of updated) {
-            const row = { name: x.name, company: x.company, unit: x.unit ?? null, low_stock: x.lowStock ?? 5 };
+            const row = { name: x.name, company: x.company, unit: x.unit ?? null, low_stock: x.lowStock ?? 5, ...(hasGstColumns ? { hsn: x.hsn ?? null, gst_rate: x.gstRate ?? null, price: x.price ?? null } : {}) };
             tasks.push(supabase.from("items").update(row).eq("id", x.id));
             mirrorJobs.push({ table: "items", action: "update", id: x.id, row: { id: x.id, ...row, low_stock: x.lowStock ?? 5 } });
           }
@@ -345,7 +485,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
           const { added, removed, updated } = diff(
             db.dealers,
             next.dealers,
-            ["name", "phone", "address", "notes"],
+            ["name", "phone", "address", "notes", "gstin", "openingBalance"],
           );
           if (added.length)
             tasks.push(
@@ -357,6 +497,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
                   phone: x.phone ?? null,
                   address: x.address ?? null,
                   notes: x.notes ?? null,
+                  ...(hasGstColumns ? { gstin: x.gstin ?? null, opening_balance: x.openingBalance ?? 0 } : {}),
                   created_by: uid,
                 })),
               ),
@@ -364,10 +505,10 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
           for (const x of added)
             mirrorJobs.push({
               table: "dealers", action: "insert", id: x.id,
-              row: { id: x.id, name: x.name, phone: x.phone ?? "", address: x.address ?? "", notes: x.notes ?? "", created_by: uid, created_at: nowIso },
+              row: { id: x.id, name: x.name, phone: x.phone ?? "", address: x.address ?? "", notes: x.notes ?? "", gstin: x.gstin ?? "", opening_balance: x.openingBalance ?? 0, created_by: uid, created_at: nowIso },
             });
           for (const x of updated) {
-            const row = { name: x.name, phone: x.phone ?? null, address: x.address ?? null, notes: x.notes ?? null };
+            const row = { name: x.name, phone: x.phone ?? null, address: x.address ?? null, notes: x.notes ?? null, ...(hasGstColumns ? { gstin: x.gstin ?? null, opening_balance: x.openingBalance ?? 0 } : {}) };
             tasks.push(supabase.from("dealers").update(row).eq("id", x.id));
             mirrorJobs.push({ table: "dealers", action: "update", id: x.id, row: { id: x.id, ...row } });
           }
@@ -382,7 +523,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
           const { added, removed, updated } = diff(
             db.customers,
             next.customers,
-            ["name", "phone", "address", "notes"],
+            ["name", "phone", "address", "notes", "gstin", "openingBalance"],
           );
           if (added.length)
             tasks.push(
@@ -394,6 +535,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
                   phone: x.phone ?? null,
                   address: x.address ?? null,
                   notes: x.notes ?? null,
+                  ...(hasGstColumns ? { gstin: x.gstin ?? null, opening_balance: x.openingBalance ?? 0 } : {}),
                   created_by: uid,
                 })),
               ),
@@ -401,10 +543,10 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
           for (const x of added)
             mirrorJobs.push({
               table: "customers", action: "insert", id: x.id,
-              row: { id: x.id, name: x.name, phone: x.phone ?? "", address: x.address ?? "", notes: x.notes ?? "", created_by: uid, created_at: nowIso },
+              row: { id: x.id, name: x.name, phone: x.phone ?? "", address: x.address ?? "", notes: x.notes ?? "", gstin: x.gstin ?? "", opening_balance: x.openingBalance ?? 0, created_by: uid, created_at: nowIso },
             });
           for (const x of updated) {
-            const row = { name: x.name, phone: x.phone ?? null, address: x.address ?? null, notes: x.notes ?? null };
+            const row = { name: x.name, phone: x.phone ?? null, address: x.address ?? null, notes: x.notes ?? null, ...(hasGstColumns ? { gstin: x.gstin ?? null, opening_balance: x.openingBalance ?? 0 } : {}) };
             tasks.push(supabase.from("customers").update(row).eq("id", x.id));
             mirrorJobs.push({ table: "customers", action: "update", id: x.id, row: { id: x.id, ...row } });
           }
@@ -488,11 +630,30 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
                     item_id: l.itemId,
                     qty: l.qty,
                     rate: l.rate,
+                    ...(hasGstColumns ? { gst_rate: l.gstRate ?? null } : {}),
                   })),
                 );
                 if (linesPayload.length) {
                   const { error: e2 } = await supabase.from("sale_lines").insert(linesPayload);
                   if (e2) throw e2;
+                }
+                // Ledger: a new sale that already has money received gets a
+                // matching payment entry (after the sale row, for the FK).
+                const paid = hasPaymentsTable ? added.filter((s) => s.customerId && s.amountPaid > 0) : [];
+                if (paid.length) {
+                  const { error: e3 } = await supabase.from("payments").insert(
+                    paid.map((s) => ({
+                      id: newId(),
+                      business_id: bid,
+                      party_type: "customer",
+                      party_id: s.customerId!,
+                      sale_id: s.id,
+                      date: s.date,
+                      amount: s.amountPaid,
+                      created_by: uid,
+                    })),
+                  );
+                  if (e3) throw e3;
                 }
               })(),
             );
@@ -505,7 +666,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
                 const lineId = `${s.id}:${idx}`;
                 mirrorJobs.push({
                   table: "sale_lines", action: "insert", id: lineId,
-                  row: { id: lineId, sale_id: s.id, item_id: l.itemId, qty: l.qty, rate: l.rate },
+                  row: { id: lineId, sale_id: s.id, item_id: l.itemId, qty: l.qty, rate: l.rate, gst_rate: l.gstRate ?? "" },
                 });
               });
             }
@@ -527,7 +688,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
 
             // Per-line diff by id. New lines (no id) get one assigned now.
             const nextLines = s.lines.map((l) => ({ ...l, id: l.id ?? newId() }));
-            const lineCmp = (l: SaleLine) => `${l.itemId}|${l.qty}|${l.rate}`;
+            const lineCmp = (l: SaleLine) => `${l.itemId}|${l.qty}|${l.rate}|${l.gstRate ?? ""}`;
             const prevLineMap = new Map(prev.lines.filter((l) => l.id).map((l) => [l.id!, l]));
             const nextLineIds = new Set(nextLines.map((l) => l.id!));
             const linesAdded = nextLines.filter((l) => !prevLineMap.has(l.id!));
@@ -554,6 +715,22 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
 
                   }).eq("id", s.id);
                   if (error) throw error;
+                  // Ledger: log the paid-amount delta so the khata stays in
+                  // step with per-sale figures (negative delta = correction).
+                  const delta = s.amountPaid - prev.amountPaid;
+                  if (delta !== 0 && s.customerId && hasPaymentsTable) {
+                    const { error: pe } = await supabase.from("payments").insert({
+                      id: newId(),
+                      business_id: bid,
+                      party_type: "customer",
+                      party_id: s.customerId,
+                      sale_id: s.id,
+                      date: today(),
+                      amount: delta,
+                      created_by: uid,
+                    });
+                    if (pe) throw pe;
+                  }
                 }
                 // Order: updates first, then inserts, then deletes — so a
                 // partial failure leaves the bill at worst with extra lines,
@@ -561,7 +738,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
                 for (const l of linesUpdated) {
                   const { error } = await supabase
                     .from("sale_lines")
-                    .update({ item_id: l.itemId, qty: l.qty, rate: l.rate })
+                    .update({ item_id: l.itemId, qty: l.qty, rate: l.rate, ...(hasGstColumns ? { gst_rate: l.gstRate ?? null } : {}) })
                     .eq("id", l.id!);
                   if (error) throw error;
                 }
@@ -573,6 +750,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
                       item_id: l.itemId,
                       qty: l.qty,
                       rate: l.rate,
+                      ...(hasGstColumns ? { gst_rate: l.gstRate ?? null } : {}),
                     })),
                   );
                   if (error) throw error;
@@ -594,13 +772,13 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
             for (const l of linesAdded) {
               mirrorJobs.push({
                 table: "sale_lines", action: "insert", id: l.id!,
-                row: { id: l.id, sale_id: s.id, item_id: l.itemId, qty: l.qty, rate: l.rate },
+                row: { id: l.id, sale_id: s.id, item_id: l.itemId, qty: l.qty, rate: l.rate, gst_rate: l.gstRate ?? "" },
               });
             }
             for (const l of linesUpdated) {
               mirrorJobs.push({
                 table: "sale_lines", action: "update", id: l.id!,
-                row: { id: l.id, sale_id: s.id, item_id: l.itemId, qty: l.qty, rate: l.rate },
+                row: { id: l.id, sale_id: s.id, item_id: l.itemId, qty: l.qty, rate: l.rate, gst_rate: l.gstRate ?? "" },
               });
             }
           }
@@ -650,6 +828,91 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
           }
         }
 
+        // PAYMENTS (standalone khata entries; sale-linked rows are handled in
+        // the SALES section above and must not be added/edited via this diff)
+        {
+          const { added, removed, updated } = diff(
+            db.payments,
+            next.payments,
+            ["date", "partyType", "partyId", "saleId", "amount", "mode", "notes"],
+          );
+          if (!hasPaymentsTable && (added.length || updated.length || removed.length)) {
+            throw new Error(MIGRATION_HINT);
+          }
+          if (added.length)
+            tasks.push(
+              supabase.from("payments").insert(
+                added.map((x) => ({
+                  id: x.id,
+                  business_id: bid,
+                  party_type: x.partyType,
+                  party_id: x.partyId,
+                  sale_id: x.saleId ?? null,
+                  date: x.date,
+                  amount: x.amount,
+                  mode: x.mode ?? null,
+                  notes: x.notes ?? null,
+                  created_by: uid,
+                })),
+              ),
+            );
+          for (const x of added)
+            mirrorJobs.push({
+              table: "payments", action: "insert", id: x.id,
+              row: { id: x.id, date: x.date, party_type: x.partyType, party_id: x.partyId, sale_id: x.saleId ?? "", amount: x.amount, mode: x.mode ?? "", notes: x.notes ?? "", created_by: uid, created_at: nowIso },
+            });
+          for (const x of updated) {
+            const row = { date: x.date, amount: x.amount, mode: x.mode ?? null, notes: x.notes ?? null };
+            tasks.push(supabase.from("payments").update(row).eq("id", x.id));
+            mirrorJobs.push({ table: "payments", action: "update", id: x.id, row: { id: x.id, ...row } });
+          }
+          for (const r of removed) {
+            tasks.push(supabase.from("payments").delete().eq("id", r.id));
+            mirrorJobs.push({ table: "payments", action: "delete", id: r.id });
+          }
+        }
+
+        // STOCK ADJUSTMENTS
+        {
+          const { added, removed, updated } = diff(
+            db.adjustments,
+            next.adjustments,
+            ["date", "itemId", "qty", "reason", "notes"],
+          );
+          if (!hasAdjustmentsTable && (added.length || updated.length || removed.length)) {
+            throw new Error(MIGRATION_HINT);
+          }
+          if (added.length)
+            tasks.push(
+              supabase.from("stock_adjustments").insert(
+                added.map((x) => ({
+                  id: x.id,
+                  business_id: bid,
+                  item_id: x.itemId,
+                  date: x.date,
+                  qty: x.qty,
+                  reason: x.reason,
+                  notes: x.notes ?? null,
+                  created_by: uid,
+                })),
+              ),
+            );
+          for (const x of added)
+            mirrorJobs.push({
+              table: "stock_adjustments", action: "insert", id: x.id,
+              row: { id: x.id, date: x.date, item_id: x.itemId, qty: x.qty, reason: x.reason, notes: x.notes ?? "", created_by: uid, created_at: nowIso },
+            });
+          for (const x of updated) {
+            const row = { date: x.date, item_id: x.itemId, qty: x.qty, reason: x.reason, notes: x.notes ?? null };
+            tasks.push(supabase.from("stock_adjustments").update(row).eq("id", x.id));
+            mirrorJobs.push({ table: "stock_adjustments", action: "update", id: x.id, row: { id: x.id, ...row } });
+          }
+          for (const r of removed) {
+            tasks.push(supabase.from("stock_adjustments").delete().eq("id", r.id));
+            mirrorJobs.push({ table: "stock_adjustments", action: "delete", id: r.id });
+          }
+        }
+
         const results = await Promise.allSettled(tasks);
         const failed = results.find(
           (r) =>
@@ -666,14 +929,17 @@ export function useDB(): [DB, (u: (db: DB) => DB) => void] {
         return mirrorJobs;
       };
 
-      work()
-        .then((jobs) => {
+      return work()
+        .then((jobs): SaveResult => {
           if (bid) backupMirror(jobs, bid);
           if (bid) qc.invalidateQueries({ queryKey: QK(bid) });
+          return { ok: true };
         })
-        .catch((e: Error) => {
-          toast.error(e.message);
+        .catch((e: Error): SaveResult => {
+          const friendly = friendlyError(e);
+          toast.error(friendly);
           if (bid) qc.invalidateQueries({ queryKey: QK(bid) });
+          return { ok: false, error: friendly };
         });
     },
     [db, user, qc, bid],
@@ -704,12 +970,15 @@ export function fmtDate(iso: string) {
     return iso;
   }
 }
+function adjustedQty(db: DB, itemId: ID) {
+  return db.adjustments.filter((a) => a.itemId === itemId).reduce((s, a) => s + a.qty, 0);
+}
 export function stockOf(db: DB, itemId: ID) {
   const inQty = db.purchases.filter((p) => p.itemId === itemId).reduce((s, p) => s + p.qty, 0);
   const outQty = db.sales
     .flatMap((s) => s.lines.filter((l) => l.itemId === itemId))
     .reduce((s, l) => s + l.qty, 0);
-  return inQty - outQty;
+  return inQty + adjustedQty(db, itemId) - outQty;
 }
 // Stock available for a sale, optionally excluding a specific sale (the one
 // being edited) so editing 10 → 12 against current stock 10 doesn't pretend
@@ -720,7 +989,7 @@ export function stockAvailableFor(db: DB, itemId: ID, excludeSaleId?: ID) {
     .filter((s) => s.id !== excludeSaleId)
     .flatMap((s) => s.lines.filter((l) => l.itemId === itemId))
     .reduce((s, l) => s + l.qty, 0);
-  return inQty - outQty;
+  return inQty + adjustedQty(db, itemId) - outQty;
 }
 export function lastPurchaseRate(db: DB, itemId: ID): number | null {
   const ps = db.purchases
@@ -789,13 +1058,60 @@ export function taxableBase(s: Sale) {
   const items = s.lines.reduce((a, l) => a + l.qty * l.rate, 0);
   return items + (s.extraExpensesChargeCustomer ? (s.extraExpenses ?? 0) : 0);
 }
-// GST amount in rupees for a sale (0 when no rate set).
+// GST amount in rupees for a sale. Lines carrying their own snapshotted slab
+// use it; lines without (legacy) and chargeable extras use the sale-level rate.
 export function gstAmount(s: Sale) {
-  const rate = s.gstRate ?? 0;
-  return rate > 0 ? taxableBase(s) * (rate / 100) : 0;
+  const saleRate = s.gstRate ?? 0;
+  const linesGst = s.lines.reduce(
+    (a, l) => a + l.qty * l.rate * (((l.gstRate ?? saleRate) || 0) / 100),
+    0,
+  );
+  const extrasGst = s.extraExpensesChargeCustomer ? (s.extraExpenses ?? 0) * (saleRate / 100) : 0;
+  return linesGst + extrasGst;
+}
+// Single effective GST % when every taxed component shares one rate (for
+// "CGST (9%)"-style labels); null when rates are mixed across lines.
+export function gstRateSummary(s: Sale): number | null {
+  const saleRate = s.gstRate ?? 0;
+  const rates = new Set<number>();
+  for (const l of s.lines) rates.add((l.gstRate ?? saleRate) || 0);
+  if (s.extraExpensesChargeCustomer && (s.extraExpenses ?? 0) > 0) rates.add(saleRate);
+  rates.delete(0);
+  if (rates.size === 0) return 0;
+  return rates.size === 1 ? [...rates][0] : null;
+}
+
+// ---------- GST place-of-supply ----------
+// The first two digits of a GSTIN are the state code. Same state (or buyer
+// without a GSTIN, i.e. local B2C) → CGST + SGST; different states → IGST.
+export function gstStateCode(gstin?: string | null): string | null {
+  const m = (gstin ?? "").trim().match(/^(\d{2})/);
+  return m ? m[1] : null;
+}
+export function isInterState(sellerGstin?: string | null, buyerGstin?: string | null): boolean {
+  const a = gstStateCode(sellerGstin);
+  const b = gstStateCode(buyerGstin);
+  return !!a && !!b && a !== b;
+}
+// Split a sale's GST into the components the invoice must show.
+export function gstSplit(s: Sale, sellerGstin?: string | null, buyerGstin?: string | null) {
+  const gst = gstAmount(s);
+  const inter = isInterState(sellerGstin, buyerGstin);
+  return inter
+    ? { inter: true as const, igst: gst, cgst: 0, sgst: 0 }
+    : { inter: false as const, igst: 0, cgst: gst / 2, sgst: gst / 2 };
+}
+// Loose GSTIN shape check: 2-digit state code + 13 alphanumerics.
+export function isValidGstin(g: string): boolean {
+  return /^[0-9]{2}[0-9A-Z]{13}$/.test(g.trim().toUpperCase());
 }
 export function billTotal(s: Sale) {
   return taxableBase(s) + gstAmount(s);
+}
+// Display label for a bill's serial number. Falls back to a UUID slice for
+// sales saved before sequential numbering existed (or not yet refetched).
+export function billNoLabel(s: Sale) {
+  return s.billNo != null ? "#" + String(s.billNo).padStart(4, "0") : "#" + s.id.slice(0, 6).toUpperCase();
 }
 export function itemLabel(it: Item) {
   return `${it.company} ${it.name}`;
@@ -819,13 +1135,117 @@ export function usageCount(
 ): { purchases: number; sales: number; total: number } {
   let purchases = 0;
   let sales = 0;
+  let other = 0;
   if (kind === "item") {
     purchases = db.purchases.filter((p) => p.itemId === id).length;
     sales = db.sales.filter((s) => s.lines.some((l) => l.itemId === id)).length;
+    other = db.adjustments.filter((a) => a.itemId === id).length;
   } else if (kind === "dealer") {
     purchases = db.purchases.filter((p) => p.dealerId === id).length;
+    other = db.payments.filter((p) => p.partyType === "dealer" && p.partyId === id).length;
   } else if (kind === "customer") {
     sales = db.sales.filter((s) => s.customerId === id).length;
+    other = db.payments.filter((p) => p.partyType === "customer" && p.partyId === id).length;
   }
-  return { purchases, sales, total: purchases + sales };
+  return { purchases, sales, total: purchases + sales + other };
+}
+
+// ---------- Party ledger (khata) ----------
+
+export type LedgerEntry = {
+  id: string;
+  date: string;
+  kind: "sale" | "purchase" | "payment" | "opening";
+  label: string;
+  debit: number; // what the party owes us more of (customer) / we owe them (dealer)
+  credit: number; // money settled against it
+  createdAt: string;
+  payment?: Payment; // set when kind === "payment"
+};
+
+// Opening balance as the khata's first entry (negative opening = advance held).
+function openingEntry(p: Person | undefined): LedgerEntry[] {
+  const ob = p?.openingBalance ?? 0;
+  if (!p || ob === 0) return [];
+  return [{
+    id: `opening-${p.id}`,
+    date: p.createdAt.slice(0, 10),
+    kind: "opening",
+    label: "Opening balance",
+    debit: ob > 0 ? ob : 0,
+    credit: ob < 0 ? -ob : 0,
+    createdAt: "", // sorts before same-day transactions
+  }];
+}
+
+// Customer khata: sales are debits (they owe us), payments are credits.
+export function customerLedger(db: DB, customerId: ID): LedgerEntry[] {
+  const entries: LedgerEntry[] = openingEntry(db.customers.find((c) => c.id === customerId));
+  for (const s of db.sales) {
+    if (s.customerId !== customerId) continue;
+    entries.push({
+      id: s.id,
+      date: s.date,
+      kind: "sale",
+      label: s.isBill ? `Bill${s.billNo ? " #" + s.billNo : ""}` : "Sale",
+      debit: billTotal(s),
+      credit: 0,
+      createdAt: s.createdAt,
+    });
+  }
+  for (const p of db.payments) {
+    if (p.partyType !== "customer" || p.partyId !== customerId) continue;
+    entries.push({
+      id: p.id,
+      date: p.date,
+      kind: "payment",
+      label: p.amount >= 0 ? "Payment received" : "Correction / refund",
+      debit: 0,
+      credit: p.amount,
+      createdAt: p.createdAt,
+      payment: p,
+    });
+  }
+  return entries.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+}
+
+// Dealer khata: purchases are debits (we owe them), payments made are credits.
+export function dealerLedger(db: DB, dealerId: ID): LedgerEntry[] {
+  const entries: LedgerEntry[] = openingEntry(db.dealers.find((d) => d.id === dealerId));
+  for (const p of db.purchases) {
+    if (p.dealerId !== dealerId) continue;
+    entries.push({
+      id: p.id,
+      date: p.date,
+      kind: "purchase",
+      label: "Purchase",
+      debit: p.qty * p.rate,
+      credit: 0,
+      createdAt: p.createdAt,
+    });
+  }
+  for (const p of db.payments) {
+    if (p.partyType !== "dealer" || p.partyId !== dealerId) continue;
+    entries.push({
+      id: p.id,
+      date: p.date,
+      kind: "payment",
+      label: p.amount >= 0 ? "Payment made" : "Correction / refund",
+      debit: 0,
+      credit: p.amount,
+      createdAt: p.createdAt,
+      payment: p,
+    });
+  }
+  return entries.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+}
+
+// Positive = customer still owes us / we still owe the dealer.
+export function partyBalance(db: DB, kind: "customer" | "dealer", id: ID): number {
+  const ledger = kind === "customer" ? customerLedger(db, id) : dealerLedger(db, id);
+  return ledger.reduce((s, e) => s + e.debit - e.credit, 0);
+}
+// Total receivable across all customers (advances don't offset other parties' dues).
+export function totalReceivable(db: DB): number {
+  return db.customers.reduce((s, c) => s + Math.max(0, partyBalance(db, "customer", c.id)), 0);
 }

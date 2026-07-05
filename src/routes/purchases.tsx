@@ -7,13 +7,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/AppLayout";
 import { EntityPicker } from "@/components/EntityPicker";
-import { useDB, today, fmtINR, fmtDate, findItem, findDealer, itemLabel, newId, nowStamp, stockOf, type Purchase } from "@/lib/store";
+import { useDB, today, fmtINR, fmtDate, findItem, findDealer, itemLabel, newId, nowStamp, stockOf, type Purchase , type Payment, schemaUpgradePending } from "@/lib/store";
 import { AdminDelete } from "@/components/AdminDelete";
 import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
 import { Plus, Pencil, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { NumberInput } from "@/components/ui/number-input";
-import { PeAvatar } from "@/components/ui/pe";
+import { PeAvatar, PeFormError } from "@/components/ui/pe";
 
 export const Route = createFileRoute("/purchases")({
   head: () => ({ meta: [{ title: "Purchases — Shop Manager" }] }),
@@ -130,44 +130,75 @@ function PurchaseDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
   const [qty, setQty] = React.useState("");
   const [rate, setRate] = React.useState("");
   const [notes, setNotes] = React.useState("");
+  const [paidNow, setPaidNow] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
+      setSaving(false);
+      setError(null);
       setDate(editing?.date ?? today());
       setItemId(editing?.itemId ?? null);
       setDealerId(editing?.dealerId ?? null);
       setQty(editing ? String(editing.qty) : "");
       setRate(editing ? String(editing.rate) : "");
       setNotes(editing?.notes ?? "");
+      setPaidNow("");
     }
   }, [open, editing]);
 
   const total = (Number(qty) || 0) * (Number(rate) || 0);
 
-  const submit = () => {
+  const submit = async () => {
     if (!itemId || !dealerId || !qty || !rate) {
-      toast.error("Fill item, dealer, quantity and rate");
+      setError("Fill item, dealer, quantity and rate");
       return;
     }
-    if (editing) {
-      const patch = { date, itemId, dealerId, qty: Number(qty), rate: Number(rate), notes: notes || undefined };
-      set((d) => ({ ...d, purchases: d.purchases.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)) }));
-      toast.success("Purchase updated");
-    } else {
-      const p: Purchase = {
-        id: newId(),
-        date,
-        itemId,
-        dealerId,
-        qty: Number(qty),
-        rate: Number(rate),
-        notes: notes || undefined,
-        addedBy: db.currentUser,
-        createdAt: nowStamp(),
-      };
-      set((d) => ({ ...d, purchases: [...d.purchases, p] }));
-      toast.success("Purchase saved");
+    setSaving(true);
+    setError(null);
+    const res = editing
+      ? await set((d) => {
+          const patch = { date, itemId, dealerId, qty: Number(qty), rate: Number(rate), notes: notes || undefined };
+          return { ...d, purchases: d.purchases.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)) };
+        })
+      : await set((d) => {
+          const p: Purchase = {
+            id: newId(),
+            date,
+            itemId,
+            dealerId,
+            qty: Number(qty),
+            rate: Number(rate),
+            notes: notes || undefined,
+            addedBy: db.currentUser,
+            createdAt: nowStamp(),
+          };
+          // "Paid now" settles (part of) this purchase in the dealer's khata
+          // in the same save — no separate payment step for cash purchases.
+          const paid = Math.min(Number(qty) * Number(rate), Math.max(0, Number(paidNow) || 0));
+          const pay: Payment | null = paid > 0 && !schemaUpgradePending()
+            ? {
+                id: newId(),
+                date,
+                partyType: "dealer",
+                partyId: dealerId,
+                saleId: null,
+                amount: paid,
+                mode: "cash",
+                notes: "Paid with purchase",
+                addedBy: db.currentUser,
+                createdAt: nowStamp(),
+              }
+            : null;
+          return { ...d, purchases: [...d.purchases, p], payments: pay ? [...d.payments, pay] : d.payments };
+        });
+    setSaving(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
     }
+    toast.success(editing ? "Purchase updated" : "Purchase saved");
     onOpenChange(false);
   };
 
@@ -202,14 +233,29 @@ function PurchaseDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
             <span className="text-muted-foreground">Total</span>
             <span className="font-semibold tabular-nums">{fmtINR(total)}</span>
           </div>
+          {!editing && !schemaUpgradePending() && (
+            <div className="grid gap-1.5">
+              <Label>Paid now (₹)</Label>
+              <div className="flex gap-2">
+                <NumberInput value={paidNow} onValueChange={setPaidNow} min={0} max={10000000} className="h-11 flex-1" />
+                <Button type="button" variant="outline" className="h-11" onClick={() => setPaidNow(String(total))}>
+                  Full
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Leave 0 if bought on credit — the amount stays in the dealer&apos;s khata as &quot;to pay&quot;.
+              </p>
+            </div>
+          )}
           <div className="grid gap-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
           </div>
         </div>
+        <PeFormError message={error} />
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit}>Save</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -10,6 +10,7 @@ import { useBusiness } from "@/lib/business";
 import { toast } from "sonner";
 import { ensureBackupSpreadsheet } from "@/lib/sheets.functions";
 import { PhoneInput, isValidPhone } from "@/components/ui/phone-input";
+import { isValidGstin } from "@/lib/store";
 
 export const Route = createFileRoute("/business/settings")({
   head: () => ({ meta: [{ title: "Business settings — BW Inventory" }] }),
@@ -22,12 +23,14 @@ function BusinessSettingsPage() {
   const [name, setName] = React.useState(current?.name ?? "");
   const [phone, setPhone] = React.useState(current?.phone ?? "");
   const [address, setAddress] = React.useState(current?.address ?? "");
+  const [gstin, setGstin] = React.useState(current?.gstin ?? "");
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     setName(current?.name ?? "");
     setPhone(current?.phone ?? "");
     setAddress(current?.address ?? "");
+    setGstin(current?.gstin ?? "");
   }, [current?.id]);
 
   if (role !== "admin") {
@@ -44,17 +47,23 @@ function BusinessSettingsPage() {
     if (!name.trim()) return toast.error("Name required");
     if (name.trim().length > 80) return toast.error("Name too long");
     if (!isValidPhone(phone.trim())) return toast.error("Enter a valid phone (7–15 digits)");
+    const g = gstin.trim().toUpperCase();
+    if (g && !isValidGstin(g)) return toast.error("GSTIN must be 15 characters starting with a 2-digit state code");
     setBusy(true);
     try {
       const { error } = await supabase
         .from("businesses")
-        .update({ name: name.trim(), phone: phone.trim() || null, address: address.trim() || null })
+        .update({ name: name.trim(), phone: phone.trim() || null, address: address.trim() || null, gstin: g || null })
         .eq("id", current.id);
       if (error) throw error;
       await refresh();
       toast.success("Saved");
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(
+        e?.code === "PGRST204" || e?.code === "42703"
+          ? "Database upgrade pending — apply the latest Supabase migrations to save GSTIN."
+          : e.message,
+      );
     } finally {
       setBusy(false);
     }
@@ -84,6 +93,11 @@ function BusinessSettingsPage() {
         <div className="grid gap-1.5"><Label>Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} /></div>
         <div className="grid gap-1.5"><Label>Phone</Label><PhoneInput value={phone} onValueChange={setPhone} /></div>
         <div className="grid gap-1.5"><Label>Address</Label><Input value={address} onChange={(e) => setAddress(e.target.value)} maxLength={200} /></div>
+        <div className="grid gap-1.5">
+          <Label>GSTIN</Label>
+          <Input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} maxLength={15} placeholder="e.g. 27ABCDE1234F1Z5" />
+          <p className="text-xs text-muted-foreground">Printed on invoices. The first 2 digits (state code) decide CGST/SGST vs IGST on bills.</p>
+        </div>
         <Button onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
       </Card>
 

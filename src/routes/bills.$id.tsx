@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { useDB, fmtINR, fmtDate, findCustomer, findItem, itemLabel, billTotal, taxableBase, gstAmount } from "@/lib/store";
+import { useDB, fmtINR, fmtDate, findCustomer, findItem, itemLabel, billTotal, taxableBase, gstAmount, gstSplit, gstRateSummary, billNoLabel } from "@/lib/store";
 import { downloadBillPdf, printBillPdf } from "@/lib/billPdf";
 import { ArrowLeft, Printer, Download } from "lucide-react";
 import { useEffect } from "react";
@@ -34,9 +34,11 @@ function BillDetail() {
 
   const customer = findCustomer(db, sale.customerId);
   const total = billTotal(sale);
-  const rate = sale.gstRate ?? 0;
   const gst = gstAmount(sale);
   const base = taxableBase(sale);
+  const split = gstSplit(sale, db.shop.gstin, customer?.gstin);
+  const uniform = gstRateSummary(sale);
+  const pct = (n: number) => (uniform != null && uniform > 0 ? ` (${n}%)` : "");
 
   return (
     <>
@@ -53,6 +55,7 @@ function BillDetail() {
           <h1 className="text-xl font-bold">{db.shop.name}</h1>
           <p className="text-xs text-muted-foreground">{db.shop.address}</p>
           <p className="text-xs text-muted-foreground">{db.shop.phone}</p>
+          {db.shop.gstin && <p className="text-xs text-muted-foreground">GSTIN: {db.shop.gstin}</p>}
         </div>
 
         <div className="flex justify-between text-sm mb-4">
@@ -60,10 +63,11 @@ function BillDetail() {
             <div className="text-xs text-muted-foreground">Bill to</div>
             <div className="font-medium">{customer?.name ?? <span className="italic text-muted-foreground">(deleted customer)</span>}</div>
             {customer?.phone && <div className="text-xs">{customer.phone}</div>}
+            {customer?.gstin && <div className="text-xs">GSTIN: {customer.gstin}</div>}
           </div>
           <div className="text-right">
             <div className="text-xs text-muted-foreground">Bill #</div>
-            <div className="font-medium">{sale.id.slice(0, 8).toUpperCase()}</div>
+            <div className="font-medium">{billNoLabel(sale)}</div>
             <div className="text-xs">{fmtDate(sale.date)}</div>
           </div>
         </div>
@@ -100,25 +104,34 @@ function BillDetail() {
               )}
             </tbody>
             <tfoot>
-              {rate > 0 && (
+              {gst > 0 && (
                 <>
                   <tr>
                     <td colSpan={3} className="pt-3 text-right text-muted-foreground">Sub total</td>
                     <td className="pt-3 text-right tabular-nums">{fmtINR(base)}</td>
                   </tr>
-                  <tr>
-                    <td colSpan={3} className="text-right text-muted-foreground">CGST ({rate / 2}%)</td>
-                    <td className="text-right tabular-nums">{fmtINR(gst / 2)}</td>
-                  </tr>
-                  <tr>
-                    <td colSpan={3} className="text-right text-muted-foreground">SGST ({rate / 2}%)</td>
-                    <td className="text-right tabular-nums">{fmtINR(gst / 2)}</td>
-                  </tr>
+                  {split.inter ? (
+                    <tr>
+                      <td colSpan={3} className="text-right text-muted-foreground">IGST{pct(uniform ?? 0)}</td>
+                      <td className="text-right tabular-nums">{fmtINR(split.igst)}</td>
+                    </tr>
+                  ) : (
+                    <>
+                      <tr>
+                        <td colSpan={3} className="text-right text-muted-foreground">CGST{pct((uniform ?? 0) / 2)}</td>
+                        <td className="text-right tabular-nums">{fmtINR(split.cgst)}</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={3} className="text-right text-muted-foreground">SGST{pct((uniform ?? 0) / 2)}</td>
+                        <td className="text-right tabular-nums">{fmtINR(split.sgst)}</td>
+                      </tr>
+                    </>
+                  )}
                 </>
               )}
               <tr>
-                <td colSpan={3} className={(rate > 0 ? "" : "pt-3 ") + "text-right font-semibold"}>Total</td>
-                <td className={(rate > 0 ? "" : "pt-3 ") + "text-right font-bold text-lg tabular-nums"}>{fmtINR(total)}</td>
+                <td colSpan={3} className={(gst > 0 ? "" : "pt-3 ") + "text-right font-semibold"}>Total</td>
+                <td className={(gst > 0 ? "" : "pt-3 ") + "text-right font-bold text-lg tabular-nums"}>{fmtINR(total)}</td>
               </tr>
             </tfoot>
           </table>

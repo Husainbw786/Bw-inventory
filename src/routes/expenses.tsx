@@ -11,6 +11,7 @@ import { AdminDelete } from "@/components/AdminDelete";
 import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
 import { Plus, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { PeFormError } from "@/components/ui/pe";
 import { NumberInput } from "@/components/ui/number-input";
 
 const CATS = ["Transport", "Rent", "Tea & Snacks", "Electricity", "Repairs", "Stationery", "Other"];
@@ -79,6 +80,8 @@ function ExpenseDialog({ open, onOpenChange, editing }: { open: boolean; onOpenC
   const [customCat, setCustomCat] = React.useState("");
   const [amount, setAmount] = React.useState("");
   const [note, setNote] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
@@ -96,29 +99,36 @@ function ExpenseDialog({ open, onOpenChange, editing }: { open: boolean; onOpenC
         setAmount("");
         setNote("");
       }
+      setSaving(false);
+      setError(null);
     }
   }, [open, editing]);
 
-  const submit = () => {
+  const submit = async () => {
     const finalCat = cat === "Other" ? customCat.trim() || "Other" : cat;
-    if (!amount || Number(amount) <= 0) return toast.error("Enter amount");
-    if (editing) {
-      const patch = { date, category: finalCat, amount: Number(amount), note: note || undefined };
-      set((d) => ({ ...d, expenses: d.expenses.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)) }));
-      toast.success("Expense updated");
-    } else {
-      const e: Expense = {
-        id: newId(),
-        date,
-        category: finalCat,
-        amount: Number(amount),
-        note: note || undefined,
-        addedBy: db.currentUser,
-        createdAt: nowStamp(),
-      };
-      set((d) => ({ ...d, expenses: [...d.expenses, e] }));
-      toast.success("Expense added");
-    }
+    if (!amount || Number(amount) <= 0) return setError("Enter amount");
+    setSaving(true);
+    setError(null);
+    const res = editing
+      ? await set((d) => {
+          const patch = { date, category: finalCat, amount: Number(amount), note: note || undefined };
+          return { ...d, expenses: d.expenses.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)) };
+        })
+      : await set((d) => {
+          const e: Expense = {
+            id: newId(),
+            date,
+            category: finalCat,
+            amount: Number(amount),
+            note: note || undefined,
+            addedBy: db.currentUser,
+            createdAt: nowStamp(),
+          };
+          return { ...d, expenses: [...d.expenses, e] };
+        });
+    setSaving(false);
+    if (!res.ok) return setError(res.error);
+    toast.success(editing ? "Expense updated" : "Expense added");
     onOpenChange(false);
   };
 
@@ -151,9 +161,10 @@ function ExpenseDialog({ open, onOpenChange, editing }: { open: boolean; onOpenC
             <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} className="h-11" />
           </div>
         </div>
+        <PeFormError message={error} />
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit}>Save</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -9,12 +9,12 @@ Built with **TanStack Start (React 19) + Supabase**, deployed to **Cloudflare Wo
 ## Features
 
 - **Dashboard** (`/`) — stock and money summary at a glance.
-- **Items** (`/items`, `/items/$id`) — item catalogue with per-item stock history and low-stock levels.
+- **Items** (`/items`, `/items/$id`) — item catalogue with HSN/SAC code, GST slab (0/5/12/18/28%), default selling price, per-item stock history, low-stock levels, and manual stock adjustments (opening stock, damage/loss, count corrections, sale/purchase returns).
+- **Sales** (`/sales`) — multi-line sales linked to customers; item price auto-fills, each line snapshots its item's GST slab, and bills get sequential per-business numbers (DB-assigned). CGST+SGST vs IGST is decided automatically by comparing the state code (first two GSTIN digits) of the business and the customer.
 - **Purchases** (`/purchases`) — stock-in entries against dealers.
-- **Sales** (`/sales`) — multi-line sales with GST, linked to customers; generates bills.
-- **Bills** (`/bills`, `/bills/$id`) — bill list and detail, PDF download/share via jsPDF ([billPdf.ts](src/lib/billPdf.ts)).
+- **Bills** (`/bills`, `/bills/$id`) — bill list and detail with GSTINs, HSN column, and the CGST/SGST-or-IGST tax rows; PDF download/share via jsPDF ([billPdf.ts](src/lib/billPdf.ts)).
 - **Expenses** (`/expenses`) — simple expense log.
-- **Directory** (`/directory`) — dealers & customers, with import from phone contacts (Contacts Picker API, Android Chrome only — [contacts.ts](src/lib/contacts.ts)).
+- **Directory / Khata** (`/directory`) — dealers & customers with GSTIN and opening balance, outstanding balances (receivable/payable), a per-party ledger of bills and dated payments (cash/UPI/bank/cheque), and import from phone contacts (Contacts Picker API, Android Chrome only — [contacts.ts](src/lib/contacts.ts)).
 - **Reports** (`/reports`) — charts via Recharts.
 - **Members & invites** (`/members`, `/invite/$token`) — invite users to a business by link; roles enforced by Postgres RLS.
 - **Business onboarding/settings** (`/onboarding`, `/business/new`, `/business/settings`) — create/switch businesses; optional Google Sheets backup mirror.
@@ -86,11 +86,15 @@ supabase/
 
 ### Data model
 
-Postgres tables (all business-scoped, RLS-protected): `businesses`, `business_members`, `business_invites`, `profiles`, `user_roles`, `items`, `dealers`, `customers`, `purchases`, `sales`, `sale_lines`, `expenses`, `app_settings`.
+Postgres tables (all business-scoped, RLS-protected): `businesses`, `business_members`, `business_invites`, `profiles`, `user_roles`, `items`, `dealers`, `customers`, `purchases`, `sales`, `sale_lines`, `expenses`, `payments`, `stock_adjustments`, `app_settings`.
+
+Invariants enforced in the database: sale lines can't oversell available stock (`enforce_sale_line_stock` trigger, stock = purchases + adjustments − sales), and bills get a consecutive per-business serial number on creation (`assign_bill_no` trigger).
 
 ### How data flows
 
 Components read via `useDB()` and write via `setDB(updater)` ([store.ts](src/lib/store.ts)). The store diffs the updater's result against the live snapshot, dispatches the corresponding Supabase mutations, keeps TanStack Query caches in sync, and (if configured) mirrors writes to a per-business Google Sheet as a non-blocking backup.
+
+The payments ledger stays consistent by construction: whenever a sale's `amountPaid` changes, the store logs a matching dated `payments` row against that sale; standalone khata entries (advances, dealer payments) are added directly to `db.payments`. Party balances are always derived from the ledger (`partyBalance` in store.ts).
 
 ## Deploy
 

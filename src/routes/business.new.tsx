@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { useBusiness } from "@/lib/business";
 import { toast } from "sonner";
 import { PhoneInput, isValidPhone } from "@/components/ui/phone-input";
+import { isValidGstin } from "@/lib/store";
 
 export const Route = createFileRoute("/business/new")({
   head: () => ({ meta: [{ title: "New business — BW Inventory" }] }),
@@ -27,6 +28,7 @@ function NewBusinessPage() {
   });
   const [phone, setPhone] = React.useState("");
   const [address, setAddress] = React.useState("");
+  const [gstin, setGstin] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   const submit = async (e: React.FormEvent) => {
@@ -35,6 +37,8 @@ function NewBusinessPage() {
     if (!name.trim()) return toast.error("Business name is required");
     if (name.trim().length > 80) return toast.error("Business name too long");
     if (!isValidPhone(phone.trim())) return toast.error("Enter a valid phone (7–15 digits)");
+    const g = gstin.trim().toUpperCase();
+    if (g && !isValidGstin(g)) return toast.error("GSTIN must be 15 characters starting with a 2-digit state code");
     setBusy(true);
     try {
       const { data, error } = await supabase.rpc("create_business", {
@@ -44,6 +48,12 @@ function NewBusinessPage() {
       });
       if (error) throw error;
       const newId = (data as any)?.id;
+      // create_business doesn't take gstin; set it right after. Best-effort:
+      // on a not-yet-migrated DB this fails quietly and can be set in Settings.
+      if (newId && g) {
+        const { error: ge } = await supabase.from("businesses").update({ gstin: g }).eq("id", newId);
+        if (ge) console.warn("[business.new] gstin not saved:", ge.message);
+      }
       await refresh();
       if (newId) switchTo(newId);
       toast.success("Business created");
@@ -75,6 +85,11 @@ function NewBusinessPage() {
             <div className="grid gap-1.5">
               <Label>Address</Label>
               <Input value={address} onChange={(e) => setAddress(e.target.value)} maxLength={200} className="h-11" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>GSTIN (optional)</Label>
+              <Input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} maxLength={15} placeholder="e.g. 27ABCDE1234F1Z5" className="h-11" />
+              <p className="text-xs text-muted-foreground">Printed on invoices; decides CGST/SGST vs IGST. You can add it later in Settings.</p>
             </div>
             <div className="flex gap-2 pt-2">
               <Button type="button" variant="outline" className="flex-1" onClick={() => nav({ to: "/" })}>Cancel</Button>

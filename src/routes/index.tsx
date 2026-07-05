@@ -6,7 +6,7 @@ import {
   ShoppingCart, TrendingDown, Wallet, Package, AlertTriangle,
   ArrowDownRight, ArrowUpRight, ChevronRight, TrendingUp,
 } from "lucide-react";
-import { useDB, fmtINR, today, totalsForRange, stockOf, itemLabel, billTotal } from "@/lib/store";
+import { useDB, fmtINR, today, totalsForRange, stockOf, totalReceivable } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/")({
@@ -25,10 +25,9 @@ function Home() {
   const t = today();
   const totals = totalsForRange(db, t, t);
 
-  // Money to collect = sum of (bill total − amountPaid) across non-archived sales
-  const toCollect = db.sales
-    .filter((s) => !s.archived)
-    .reduce((sum, s) => sum + Math.max(0, billTotal(s) - (s.amountPaid ?? 0)), 0);
+  // Money to collect = true receivable from the khata: sales + opening balances
+  // − every payment received (per customer, advances don't offset others' dues).
+  const toCollect = totalReceivable(db);
 
   // Low stock list
   const low = db.items
@@ -61,7 +60,7 @@ function Home() {
           value={toCollect}
           sub="Customers still owe you"
           cta="See who owes"
-          to="/sales"
+          to="/directory"
           icon={ArrowDownRight}
         />
         <BigMoneyCard

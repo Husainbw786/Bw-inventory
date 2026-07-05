@@ -123,6 +123,7 @@ export type Database = {
         Row: {
           address: string | null
           created_at: string
+          gstin: string | null
           id: string
           name: string
           owner_id: string
@@ -133,6 +134,7 @@ export type Database = {
         Insert: {
           address?: string | null
           created_at?: string
+          gstin?: string | null
           id?: string
           name: string
           owner_id: string
@@ -143,6 +145,7 @@ export type Database = {
         Update: {
           address?: string | null
           created_at?: string
+          gstin?: string | null
           id?: string
           name?: string
           owner_id?: string
@@ -158,9 +161,11 @@ export type Database = {
           business_id: string
           created_at: string
           created_by: string | null
+          gstin: string | null
           id: string
           name: string
           notes: string | null
+          opening_balance: number
           phone: string | null
           updated_at: string
         }
@@ -169,9 +174,11 @@ export type Database = {
           business_id: string
           created_at?: string
           created_by?: string | null
+          gstin?: string | null
           id?: string
           name: string
           notes?: string | null
+          opening_balance?: number
           phone?: string | null
           updated_at?: string
         }
@@ -180,9 +187,11 @@ export type Database = {
           business_id?: string
           created_at?: string
           created_by?: string | null
+          gstin?: string | null
           id?: string
           name?: string
           notes?: string | null
+          opening_balance?: number
           phone?: string | null
           updated_at?: string
         }
@@ -202,9 +211,11 @@ export type Database = {
           business_id: string
           created_at: string
           created_by: string | null
+          gstin: string | null
           id: string
           name: string
           notes: string | null
+          opening_balance: number
           phone: string | null
           updated_at: string
         }
@@ -213,9 +224,11 @@ export type Database = {
           business_id: string
           created_at?: string
           created_by?: string | null
+          gstin?: string | null
           id?: string
           name: string
           notes?: string | null
+          opening_balance?: number
           phone?: string | null
           updated_at?: string
         }
@@ -224,9 +237,11 @@ export type Database = {
           business_id?: string
           created_at?: string
           created_by?: string | null
+          gstin?: string | null
           id?: string
           name?: string
           notes?: string | null
+          opening_balance?: number
           phone?: string | null
           updated_at?: string
         }
@@ -287,9 +302,12 @@ export type Database = {
           company: string
           created_at: string
           created_by: string | null
+          gst_rate: number | null
+          hsn: string | null
           id: string
           low_stock: number | null
           name: string
+          price: number | null
           unit: string | null
           updated_at: string
         }
@@ -298,9 +316,12 @@ export type Database = {
           company: string
           created_at?: string
           created_by?: string | null
+          gst_rate?: number | null
+          hsn?: string | null
           id?: string
           low_stock?: number | null
           name: string
+          price?: number | null
           unit?: string | null
           updated_at?: string
         }
@@ -309,9 +330,12 @@ export type Database = {
           company?: string
           created_at?: string
           created_by?: string | null
+          gst_rate?: number | null
+          hsn?: string | null
           id?: string
           low_stock?: number | null
           name?: string
+          price?: number | null
           unit?: string | null
           updated_at?: string
         }
@@ -321,6 +345,63 @@ export type Database = {
             columns: ["business_id"]
             isOneToOne: false
             referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount: number
+          business_id: string
+          created_at: string
+          created_by: string | null
+          date: string
+          id: string
+          mode: string | null
+          notes: string | null
+          party_id: string
+          party_type: string
+          sale_id: string | null
+        }
+        Insert: {
+          amount: number
+          business_id: string
+          created_at?: string
+          created_by?: string | null
+          date?: string
+          id?: string
+          mode?: string | null
+          notes?: string | null
+          party_id: string
+          party_type: string
+          sale_id?: string | null
+        }
+        Update: {
+          amount?: number
+          business_id?: string
+          created_at?: string
+          created_by?: string | null
+          date?: string
+          id?: string
+          mode?: string | null
+          notes?: string | null
+          party_id?: string
+          party_type?: string
+          sale_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "sales"
             referencedColumns: ["id"]
           },
         ]
@@ -409,6 +490,7 @@ export type Database = {
       }
       sale_lines: {
         Row: {
+          gst_rate: number | null
           id: string
           item_id: string | null
           qty: number
@@ -416,6 +498,7 @@ export type Database = {
           sale_id: string
         }
         Insert: {
+          gst_rate?: number | null
           id?: string
           item_id?: string | null
           qty: number
@@ -423,6 +506,7 @@ export type Database = {
           sale_id: string
         }
         Update: {
+          gst_rate?: number | null
           id?: string
           item_id?: string | null
           qty?: number
@@ -450,6 +534,7 @@ export type Database = {
         Row: {
           amount_paid: number
           archived: boolean
+          bill_no: number | null
           business_id: string
           created_at: string
           created_by: string | null
@@ -466,6 +551,7 @@ export type Database = {
         Insert: {
           amount_paid?: number
           archived?: boolean
+          bill_no?: number | null
           business_id: string
           created_at?: string
           created_by?: string | null
@@ -482,6 +568,7 @@ export type Database = {
         Update: {
           amount_paid?: number
           archived?: boolean
+          bill_no?: number | null
           business_id?: string
           created_at?: string
           created_by?: string | null
@@ -508,6 +595,57 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stock_adjustments: {
+        Row: {
+          business_id: string
+          created_at: string
+          created_by: string | null
+          date: string
+          id: string
+          item_id: string
+          notes: string | null
+          qty: number
+          reason: string
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          created_by?: string | null
+          date?: string
+          id?: string
+          item_id: string
+          notes?: string | null
+          qty: number
+          reason: string
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          created_by?: string | null
+          date?: string
+          id?: string
+          item_id?: string
+          notes?: string | null
+          qty?: number
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_adjustments_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_adjustments_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
             referencedColumns: ["id"]
           },
         ]

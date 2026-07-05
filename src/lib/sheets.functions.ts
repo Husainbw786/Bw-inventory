@@ -19,13 +19,15 @@ function gwHeaders() {
 }
 
 const SCHEMAS = {
-  items: ["id", "name", "company", "unit", "low_stock", "created_by", "created_at", "status"],
-  dealers: ["id", "name", "phone", "address", "notes", "created_by", "created_at", "status"],
-  customers: ["id", "name", "phone", "address", "notes", "created_by", "created_at", "status"],
+  items: ["id", "name", "company", "unit", "low_stock", "hsn", "gst_rate", "price", "created_by", "created_at", "status"],
+  dealers: ["id", "name", "phone", "address", "notes", "gstin", "opening_balance", "created_by", "created_at", "status"],
+  customers: ["id", "name", "phone", "address", "notes", "gstin", "opening_balance", "created_by", "created_at", "status"],
   purchases: ["id", "date", "item_id", "dealer_id", "qty", "rate", "notes", "created_by", "created_at", "status"],
   sales: ["id", "date", "customer_id", "is_bill", "notes", "created_by", "created_at", "status"],
-  sale_lines: ["id", "sale_id", "item_id", "qty", "rate", "status"],
+  sale_lines: ["id", "sale_id", "item_id", "qty", "rate", "gst_rate", "status"],
   expenses: ["id", "date", "category", "amount", "note", "created_by", "created_at", "status"],
+  payments: ["id", "date", "party_type", "party_id", "sale_id", "amount", "mode", "notes", "created_by", "created_at", "status"],
+  stock_adjustments: ["id", "date", "item_id", "qty", "reason", "notes", "created_by", "created_at", "status"],
 } as const;
 
 export type BackupTable = keyof typeof SCHEMAS;
@@ -66,6 +68,33 @@ export const ensureBackupSpreadsheet = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!biz) throw new Error("Business not found");
     if (biz.sheets_spreadsheet_id) {
+      // Heal older spreadsheets: add tabs for tables introduced after creation.
+      try {
+        const meta = await gwFetch(`/spreadsheets/${biz.sheets_spreadsheet_id}?fields=sheets.properties.title`);
+        const existing = new Set((meta.sheets ?? []).map((s: any) => s.properties?.title));
+        const missing = Object.keys(SCHEMAS).filter((name) => !existing.has(name));
+        if (missing.length) {
+          await gwFetch(`/spreadsheets/${biz.sheets_spreadsheet_id}:batchUpdate`, {
+            method: "POST",
+            body: JSON.stringify({
+              requests: missing.map((name) => ({ addSheet: { properties: { title: name } } })),
+            }),
+          });
+          await gwFetch(`/spreadsheets/${biz.sheets_spreadsheet_id}/values:batchUpdate`, {
+            method: "POST",
+            body: JSON.stringify({
+              valueInputOption: "RAW",
+              data: missing.map((name) => ({
+                range: `${name}!A1`,
+                majorDimension: "ROWS",
+                values: [SCHEMAS[name as BackupTable] as unknown as string[]],
+              })),
+            }),
+          });
+        }
+      } catch (e) {
+        console.warn("[ensureBackupSpreadsheet] tab heal failed:", (e as Error).message);
+      }
       return {
         spreadsheetId: biz.sheets_spreadsheet_id,
         url: `https://docs.google.com/spreadsheets/d/${biz.sheets_spreadsheet_id}`,
@@ -104,7 +133,7 @@ export const ensureBackupSpreadsheet = createServerFn({ method: "POST" })
 // ---------- Mirror a single row change ----------
 const mirrorInput = z.object({
   businessId: z.string().uuid(),
-  table: z.enum(["items", "dealers", "customers", "purchases", "sales", "sale_lines", "expenses"]),
+  table: z.enum(["items", "dealers", "customers", "purchases", "sales", "sale_lines", "expenses", "payments", "stock_adjustments"]),
   action: z.enum(["insert", "update", "delete"]),
   id: z.string().min(1),
   row: z.record(z.string(), z.any()).optional(),

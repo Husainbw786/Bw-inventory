@@ -110,6 +110,7 @@ export type Payment = {
   partyType: "customer" | "dealer";
   partyId: ID;
   saleId?: ID | null;
+  purchaseId?: ID | null; // "Paid now" entries die with their purchase (CASCADE)
   amount: number;
   mode?: PaymentMode | null;
   notes?: string;
@@ -193,6 +194,7 @@ const QK = (bid: string) => ["biz-db", bid] as const;
 let hasGstColumns = true;
 let hasPaymentsTable = true;
 let hasAdjustmentsTable = true;
+let hasPurchaseLink = true;
 const MIGRATION_HINT = "Database upgrade pending — apply the latest Supabase migrations to use this feature.";
 
 // Every save resolves to this; dialogs await it and stay open on failure.
@@ -201,7 +203,7 @@ export type SaveResult = { ok: true } | { ok: false; error: string };
 // True while the connected database is missing the latest migrations.
 // Refreshed on every fetchAll; the admin upgrade banner keys off this.
 export function schemaUpgradePending() {
-  return !hasGstColumns || !hasPaymentsTable || !hasAdjustmentsTable;
+  return !hasGstColumns || !hasPaymentsTable || !hasAdjustmentsTable || !hasPurchaseLink;
 }
 
 // Turn raw Postgres/PostgREST/network errors into words a shop owner can act on.
@@ -217,7 +219,7 @@ function friendlyError(e: any): string {
 }
 
 async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> {
-  const [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, paymentsR, adjustmentsR, profilesR, gstProbeR] =
+  const [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, paymentsR, adjustmentsR, profilesR, gstProbeR, purchaseLinkProbeR] =
     await Promise.all([
       supabase.from("items").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
       supabase.from("dealers").select("*").eq("business_id", bid).order("created_at"),
@@ -230,6 +232,7 @@ async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> 
       supabase.from("stock_adjustments").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
       supabase.from("profiles").select("id, display_name"),
       supabase.from("items").select("gst_rate").limit(1), // capability probe: 42703 = old schema
+      supabase.from("payments").select("purchase_id").limit(1), // capability probe: 42703 = old schema
     ]);
 
   for (const r of [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, profilesR]) {
@@ -240,7 +243,8 @@ async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> 
   hasGstColumns = gstProbeR.error?.code !== "42703";
   hasPaymentsTable = paymentsR.error?.code !== "PGRST205";
   hasAdjustmentsTable = adjustmentsR.error?.code !== "PGRST205";
-  if (!hasGstColumns || !hasPaymentsTable || !hasAdjustmentsTable) {
+  hasPurchaseLink = !purchaseLinkProbeR.error;
+  if (!hasGstColumns || !hasPaymentsTable || !hasAdjustmentsTable || !hasPurchaseLink) {
     console.warn("[store] DB migrations pending — running in legacy-schema mode");
   }
   const optionalRows = (r: { data: any[] | null; error: { code?: string } | null }): any[] => {
@@ -339,6 +343,7 @@ async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> 
     partyType: r.party_type as Payment["partyType"],
     partyId: r.party_id,
     saleId: r.sale_id ?? null,
+    purchaseId: r.purchase_id ?? null,
     amount: Number(r.amount),
     mode: (r.mode as PaymentMode | null) ?? null,
     notes: r.notes ?? undefined,
@@ -715,6 +720,15 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
 
                   }).eq("id", s.id);
                   if (error) throw error;
+                  // Ledger: a sale moved to another customer takes its linked
+                  // payment rows along, or the old customer keeps phantom credit.
+                  if (prev.customerId !== s.customerId && s.customerId && hasPaymentsTable) {
+                    const { error: re } = await supabase
+                      .from("payments")
+                      .update({ party_id: s.customerId })
+                      .eq("sale_id", s.id);
+                    if (re) throw re;
+                  }
                   // Ledger: log the paid-amount delta so the khata stays in
                   // step with per-sale figures (negative delta = correction).
                   const delta = s.amountPaid - prev.amountPaid;
@@ -834,7 +848,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
           const { added, removed, updated } = diff(
             db.payments,
             next.payments,
-            ["date", "partyType", "partyId", "saleId", "amount", "mode", "notes"],
+            ["date", "partyType", "partyId", "saleId", "purchaseId", "amount", "mode", "notes"],
           );
           if (!hasPaymentsTable && (added.length || updated.length || removed.length)) {
             throw new Error(MIGRATION_HINT);
@@ -848,6 +862,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
                   party_type: x.partyType,
                   party_id: x.partyId,
                   sale_id: x.saleId ?? null,
+                  ...(hasPurchaseLink ? { purchase_id: x.purchaseId ?? null } : {}),
                   date: x.date,
                   amount: x.amount,
                   mode: x.mode ?? null,
@@ -859,7 +874,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
           for (const x of added)
             mirrorJobs.push({
               table: "payments", action: "insert", id: x.id,
-              row: { id: x.id, date: x.date, party_type: x.partyType, party_id: x.partyId, sale_id: x.saleId ?? "", amount: x.amount, mode: x.mode ?? "", notes: x.notes ?? "", created_by: uid, created_at: nowIso },
+              row: { id: x.id, date: x.date, party_type: x.partyType, party_id: x.partyId, sale_id: x.saleId ?? "", purchase_id: x.purchaseId ?? "", amount: x.amount, mode: x.mode ?? "", notes: x.notes ?? "", created_by: uid, created_at: nowIso },
             });
           for (const x of updated) {
             const row = { date: x.date, amount: x.amount, mode: x.mode ?? null, notes: x.notes ?? null };
@@ -956,8 +971,13 @@ export function newId() {
 export function nowStamp() {
   return new Date().toISOString();
 }
+// Calendar date in the user's timezone. Never derive a YYYY-MM-DD via
+// toISOString() — that's UTC and shifts dates before 5:30 AM IST.
+export function localISO(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 export function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localISO(new Date());
 }
 export function fmtINR(n: number) {
   return "₹" + (n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -1049,7 +1069,9 @@ export function totalsForRange(db: DB, fromISO: string, toISO: string) {
     sales: sales + billedExtras,
     expenses: expenses + saleExtras,
     cogs,
-    profit: sales + billedExtras - cogs - expenses - saleExtras,
+    // Charged extras are a pass-through: the customer's payment covers a cost
+    // the shop already incurred, so they appear in revenue AND cost (net 0).
+    profit: sales - cogs - expenses - saleExtras,
   };
 }
 
@@ -1107,6 +1129,12 @@ export function isValidGstin(g: string): boolean {
 }
 export function billTotal(s: Sale) {
   return taxableBase(s) + gstAmount(s);
+}
+// What the customer actually owes: the invoice rounds to whole rupees (the
+// PDF's "Round Off" row), so dues, payment status, and the khata must use the
+// same figure — otherwise paise residues keep bills "part-paid" forever.
+export function billPayable(s: Sale) {
+  return Math.round(billTotal(s));
 }
 // Display label for a bill's serial number. Falls back to a UUID slice for
 // sales saved before sequential numbering existed (or not yet refetched).
@@ -1188,7 +1216,7 @@ export function customerLedger(db: DB, customerId: ID): LedgerEntry[] {
       date: s.date,
       kind: "sale",
       label: s.isBill ? `Bill${s.billNo ? " #" + s.billNo : ""}` : "Sale",
-      debit: billTotal(s),
+      debit: billPayable(s),
       credit: 0,
       createdAt: s.createdAt,
     });

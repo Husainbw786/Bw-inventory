@@ -184,6 +184,7 @@ function PurchaseDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                 partyType: "dealer",
                 partyId: dealerId,
                 saleId: null,
+                purchaseId: p.id, // deleting the purchase deletes this entry too
                 amount: paid,
                 mode: "cash",
                 notes: "Paid with purchase",

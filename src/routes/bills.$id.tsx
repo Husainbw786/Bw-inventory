@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { useDB, fmtINR, fmtDate, findCustomer, findItem, itemLabel, billTotal, taxableBase, gstAmount, gstSplit, gstRateSummary, billNoLabel } from "@/lib/store";
+import { useDB, fmtINR, fmtDate, findCustomer, findItem, itemLabel, billTotal, billPayable, taxableBase, gstAmount, gstSplit, gstRateSummary, billNoLabel } from "@/lib/store";
 import { downloadBillPdf, printBillPdf } from "@/lib/billPdf";
 import { ArrowLeft, Printer, Download } from "lucide-react";
 import { useEffect } from "react";
@@ -34,6 +34,8 @@ function BillDetail() {
 
   const customer = findCustomer(db, sale.customerId);
   const total = billTotal(sale);
+  const payable = billPayable(sale);
+  const roundOff = payable - total;
   const gst = gstAmount(sale);
   const base = taxableBase(sale);
   const split = gstSplit(sale, db.shop.gstin, customer?.gstin);
@@ -129,9 +131,15 @@ function BillDetail() {
                   )}
                 </>
               )}
+              {roundOff !== 0 && (
+                <tr>
+                  <td colSpan={3} className={(gst > 0 ? "" : "pt-3 ") + "text-right text-muted-foreground"}>Round off</td>
+                  <td className={(gst > 0 ? "" : "pt-3 ") + "text-right tabular-nums"}>{roundOff > 0 ? "+" : "−"}{fmtINR(Math.abs(roundOff))}</td>
+                </tr>
+              )}
               <tr>
-                <td colSpan={3} className={(gst > 0 ? "" : "pt-3 ") + "text-right font-semibold"}>Total</td>
-                <td className={(gst > 0 ? "" : "pt-3 ") + "text-right font-bold text-lg tabular-nums"}>{fmtINR(total)}</td>
+                <td colSpan={3} className={(gst > 0 || roundOff !== 0 ? "" : "pt-3 ") + "text-right font-semibold"}>Total</td>
+                <td className={(gst > 0 || roundOff !== 0 ? "" : "pt-3 ") + "text-right font-bold text-lg tabular-nums"}>{fmtINR(payable)}</td>
               </tr>
             </tfoot>
           </table>

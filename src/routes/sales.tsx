@@ -19,7 +19,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/AppLayout";
 import { EntityPicker } from "@/components/EntityPicker";
-import { useDB, today, fmtINR, fmtDate, findCustomer, findItem, itemLabel, newId, nowStamp, billTotal, billNoLabel, stockAvailableFor, lastSaleRate, isInterState, type Sale, type SaleLine } from "@/lib/store";
+import { useDB, today, fmtINR, fmtDate, findCustomer, findItem, itemLabel, newId, nowStamp, billPayable, billNoLabel, stockAvailableFor, lastSaleRate, isInterState, type Sale, type SaleLine } from "@/lib/store";
 import { downloadBillPdf, printBillPdf } from "@/lib/billPdf";
 import { AdminDelete } from "@/components/AdminDelete";
 import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
@@ -75,7 +75,7 @@ function SalesPage() {
   const all = db.sales.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const visible = showArchived ? all : all.filter((s) => !s.archived);
   const statusOf = (s: Sale): "unpaid" | "partial" | "paid" => {
-    const total = billTotal(s);
+    const total = billPayable(s);
     const paid = s.amountPaid ?? 0;
     if (s.paymentReceived || paid >= total) return "paid";
     if (paid > 0) return "partial";
@@ -98,13 +98,13 @@ function SalesPage() {
   const [shareTarget, setShareTarget] = React.useState<Sale | null>(null);
 
   const openPayment = (s: Sale) => {
-    const due = Math.max(0, billTotal(s) - (s.amountPaid ?? 0));
+    const due = Math.max(0, billPayable(s) - (s.amountPaid ?? 0));
     setPayAmount(String(due > 0 ? due : ""));
     setPayTarget(s);
   };
   const savePayment = () => {
     if (!payTarget) return;
-    const total = billTotal(payTarget);
+    const total = billPayable(payTarget);
     const addRaw = Number(payAmount);
     if (!Number.isFinite(addRaw) || addRaw <= 0) {
       toast.error("Enter an amount greater than zero");
@@ -122,7 +122,7 @@ function SalesPage() {
     setPayTarget(null);
   };
   const markFullyPaid = (s: Sale) => {
-    const total = billTotal(s);
+    const total = billPayable(s);
     set((d) => ({
       ...d,
       sales: d.sales.map((x) => (x.id === s.id ? { ...x, amountPaid: total, paymentReceived: true } : x)),
@@ -207,17 +207,16 @@ function SalesPage() {
         {list.map((s) => {
           const cust = findCustomer(db, s.customerId);
           const canEdit = canWrite && (isAdmin || (user && s.createdBy === user.id));
-          const total = billTotal(s);
+          const total = billPayable(s);
           const paid = s.amountPaid ?? 0;
           const due = Math.max(0, total - paid);
           const isFullyPaid = s.paymentReceived || due <= 0;
           const isPartial = !isFullyPaid && paid > 0;
           const phone = (cust?.phone ?? "").replace(/\D/g, "");
           const waNumber = phone.length === 10 ? `91${phone}` : phone;
-          const billUrl = typeof window !== "undefined"
-            ? `${window.location.origin}/bills/${s.id}`
-            : `/bills/${s.id}`;
-          const reminderMsg = `Hi ${cust?.name ?? ""}, this is a gentle reminder to clear the pending payment of ${fmtINR(due)} for bill ${billNoLabel(s)} (total ${fmtINR(total)}, paid ${fmtINR(paid)}). Bill: ${billUrl}. Thank you!`;
+          // No bill URL in the message — /bills/$id needs a signed-in member,
+          // so customers would only see the login page.
+          const reminderMsg = `Hi ${cust?.name ?? ""}, this is a gentle reminder to clear the pending payment of ${fmtINR(due)} for bill ${billNoLabel(s)} (total ${fmtINR(total)}, paid ${fmtINR(paid)}). Thank you!`;
           const waLink = (msg: string) =>
             waNumber ? `https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}` : undefined;
           const status = statusOf(s);
@@ -415,7 +414,7 @@ function SalesPage() {
                           <AdminDelete
                             label={s.isBill ? "bill" : "sale"}
                             requireReason
-                            detail="Stock will be restored since payment isn't fully received."
+                            detail="Stock will be restored since payment isn't fully received. Any payments already recorded against this bill will also be removed from the customer's khata."
                             onConfirm={(reason) => {
                               set((d) => ({ ...d, sales: d.sales.filter((x) => x.id !== s.id) }));
                               if (reason) toast.success(`Deleted — ${reason}`);
@@ -491,7 +490,7 @@ function SalesPage() {
             <DialogTitle>Record payment</DialogTitle>
           </DialogHeader>
           {payTarget && (() => {
-            const total = billTotal(payTarget);
+            const total = billPayable(payTarget);
             const alreadyPaid = payTarget.amountPaid ?? 0;
             const due = Math.max(0, total - alreadyPaid);
             const addNum = Number(payAmount);
@@ -531,7 +530,7 @@ function SalesPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setPayTarget(null)}>Cancel</Button>
             {payTarget && (() => {
-              const total = billTotal(payTarget);
+              const total = billPayable(payTarget);
               const due = Math.max(0, total - (payTarget.amountPaid ?? 0));
               return (
                 <>
@@ -559,11 +558,10 @@ function ShareSheet({ sale, onClose }: { sale: Sale | null; onClose: () => void 
   if (!sale) return null;
 
   const cust = findCustomer(db, sale.customerId);
-  const total = billTotal(sale);
+  const total = billPayable(sale);
   const phone = (cust?.phone ?? "").replace(/\D/g, "");
   const waNumber = phone.length === 10 ? `91${phone}` : phone;
-  const billUrl = typeof window !== "undefined" ? `${window.location.origin}/bills/${sale.id}` : `/bills/${sale.id}`;
-  const shareMsg = `Hi ${cust?.name ?? ""}, your bill ${billNoLabel(sale)} for ${fmtINR(total)} — ${billUrl}`;
+  const shareMsg = `Hi ${cust?.name ?? ""}, your bill ${billNoLabel(sale)} for ${fmtINR(total)}. Thank you!`;
 
   const options = [
     {
@@ -722,12 +720,14 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
       toast.message("Single sale uses first row only");
     }
     const finalLinesRaw = mode === "single" ? cleaned.slice(0, 1) : cleaned;
-    // Snapshot each line's GST slab from the item catalog at save time, so a
-    // later slab change never rewrites this invoice. GST off = no line rates.
+    // Snapshot each NEW line's GST slab from the item catalog at save time, so
+    // a later slab change never rewrites this invoice. Lines that already have
+    // an id keep their stored snapshot — editing a bill's notes must not
+    // re-tax it from today's catalog. GST off = no line rates.
     const gstOn = gstEnabled;
     const finalLines = finalLinesRaw.map((l) => ({
       ...l,
-      gstRate: gstOn ? (findItem(db, l.itemId)?.gstRate ?? null) : null,
+      gstRate: gstOn ? (l.id ? (l.gstRate ?? null) : (findItem(db, l.itemId)?.gstRate ?? null)) : null,
     }));
 
     if (anyShort) {
@@ -744,7 +744,17 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
     let res;
     if (editing) {
       const patch = { date, customerId, lines: finalLines, isBill: mode === "group", notes: notes || undefined, extraExpenses: extraNum, extraExpensesChargeCustomer: chargeExtra, gstRate: gstRateNum };
-      res = await set((d) => ({ ...d, sales: d.sales.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)) }));
+      // The edit may change the total, so "fully paid" must be re-checked —
+      // otherwise a bill that grew after being marked paid still shows Paid.
+      // amountPaid is never clamped down: that would erase received money.
+      res = await set((d) => ({
+        ...d,
+        sales: d.sales.map((x) => {
+          if (x.id !== editing.id) return x;
+          const updated = { ...x, ...patch };
+          return { ...updated, paymentReceived: (x.amountPaid ?? 0) >= billPayable(updated) };
+        }),
+      }));
     } else {
       const sale: Sale = {
         id: newId(),

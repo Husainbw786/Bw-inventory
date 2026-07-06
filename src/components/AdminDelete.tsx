@@ -18,7 +18,7 @@ import { toast } from "sonner";
 
 type Props = {
   label: string;
-  onConfirm: (reason?: string) => void | Promise<void>;
+  onConfirm: (reason?: string) => void | Promise<unknown>;
   className?: string;
   /** When set, the delete is blocked and this reason is shown instead. */
   blockReason?: string | null;

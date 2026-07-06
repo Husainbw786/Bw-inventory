@@ -9,6 +9,7 @@ export type Business = {
   name: string;
   phone: string | null;
   address: string | null;
+  gstin: string | null;
   owner_id: string;
   sheets_spreadsheet_id: string | null;
 };
@@ -54,10 +55,23 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setLoading(true);
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("business_members")
-      .select("role, business:businesses(id, name, phone, address, owner_id, sheets_spreadsheet_id)")
+      .select("role, business:businesses(id, name, phone, address, gstin, owner_id, sheets_spreadsheet_id)")
       .eq("user_id", user.id);
+    if (error?.code === "42703") {
+      // gstin column missing = migrations not applied yet. Retry without it so
+      // users can still open their business mid-rollout.
+      const retry = await supabase
+        .from("business_members")
+        .select("role, business:businesses(id, name, phone, address, owner_id, sheets_spreadsheet_id)")
+        .eq("user_id", user.id);
+      error = retry.error;
+      data = (retry.data ?? []).map((r: any) => ({
+        ...r,
+        business: r.business ? { ...r.business, gstin: null } : r.business,
+      })) as typeof data;
+    }
     if (error) {
       console.error("[business] load", error);
       setMemberships([]);

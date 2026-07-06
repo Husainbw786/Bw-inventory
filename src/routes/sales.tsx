@@ -19,12 +19,12 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/AppLayout";
 import { EntityPicker } from "@/components/EntityPicker";
-import { useDB, today, fmtINR, fmtDate, findCustomer, findItem, itemLabel, newId, nowStamp, billTotal, stockAvailableFor, type Sale, type SaleLine } from "@/lib/store";
+import { useDB, today, fmtINR, fmtDate, findCustomer, findItem, itemLabel, newId, nowStamp, billTotal, billNoLabel, stockAvailableFor, lastSaleRate, isInterState, type Sale, type SaleLine } from "@/lib/store";
 import { downloadBillPdf, printBillPdf } from "@/lib/billPdf";
 import { AdminDelete } from "@/components/AdminDelete";
 import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
 import { Plus, Trash2, Receipt, Pencil, AlertTriangle, Archive, IndianRupee, ArchiveRestore, MessageCircle, Wallet, BellRing, CheckCircle2, Printer, Download, Share2, MoreHorizontal, Package, Eye, ChevronRight } from "lucide-react";
-import { PeAvatar, PeStatusPill, toneStyle, type PeTone } from "@/components/ui/pe";
+import { PeAvatar, PeStatusPill, toneStyle, type PeTone, PeFormError } from "@/components/ui/pe";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { NumberInput } from "@/components/ui/number-input";
@@ -217,7 +217,7 @@ function SalesPage() {
           const billUrl = typeof window !== "undefined"
             ? `${window.location.origin}/bills/${s.id}`
             : `/bills/${s.id}`;
-          const reminderMsg = `Hi ${cust?.name ?? ""}, this is a gentle reminder to clear the pending payment of ${fmtINR(due)} for bill #${s.id.slice(0, 6).toUpperCase()} (total ${fmtINR(total)}, paid ${fmtINR(paid)}). Bill: ${billUrl}. Thank you!`;
+          const reminderMsg = `Hi ${cust?.name ?? ""}, this is a gentle reminder to clear the pending payment of ${fmtINR(due)} for bill ${billNoLabel(s)} (total ${fmtINR(total)}, paid ${fmtINR(paid)}). Bill: ${billUrl}. Thank you!`;
           const waLink = (msg: string) =>
             waNumber ? `https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}` : undefined;
           const status = statusOf(s);
@@ -227,7 +227,7 @@ function SalesPage() {
           const avatarTone = avatarTones[
             Math.abs(nameForAvatar.split("").reduce((a, c) => a + c.charCodeAt(0), 0)) % avatarTones.length
           ];
-          const billNo = "#" + s.id.slice(0, 6).toUpperCase();
+          const billNo = billNoLabel(s);
           return (
             <div
               key={s.id}
@@ -563,7 +563,7 @@ function ShareSheet({ sale, onClose }: { sale: Sale | null; onClose: () => void 
   const phone = (cust?.phone ?? "").replace(/\D/g, "");
   const waNumber = phone.length === 10 ? `91${phone}` : phone;
   const billUrl = typeof window !== "undefined" ? `${window.location.origin}/bills/${sale.id}` : `/bills/${sale.id}`;
-  const shareMsg = `Hi ${cust?.name ?? ""}, your bill #${sale.id.slice(0, 6).toUpperCase()} for ${fmtINR(total)} — ${billUrl}`;
+  const shareMsg = `Hi ${cust?.name ?? ""}, your bill ${billNoLabel(sale)} for ${fmtINR(total)} — ${billUrl}`;
 
   const options = [
     {
@@ -659,10 +659,14 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
   const [gstEnabled, setGstEnabled] = React.useState(false);
   const [gstRate, setGstRate] = React.useState("18");
   const [override, setOverride] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
       setOverride(false);
+      setSaving(false);
+      setError(null);
       if (editing) {
         setMode(editing.isBill ? "group" : "single");
         setDate(editing.date);
@@ -710,28 +714,37 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
   });
   const anyShort = rowChecks.some((c) => c.short > 0);
 
-  const submit = () => {
-    if (!customerId) return toast.error("Choose customer");
+  const submit = async () => {
+    if (!customerId) return setError("Choose customer");
     const cleaned = lines.filter((l) => l.itemId && Number(l.qty) > 0 && Number(l.rate) >= 0);
-    if (cleaned.length === 0) return toast.error("Add at least one item");
+    if (cleaned.length === 0) return setError("Add at least one item");
     if (mode === "single" && cleaned.length > 1) {
       toast.message("Single sale uses first row only");
     }
-    const finalLines = mode === "single" ? cleaned.slice(0, 1) : cleaned;
+    const finalLinesRaw = mode === "single" ? cleaned.slice(0, 1) : cleaned;
+    // Snapshot each line's GST slab from the item catalog at save time, so a
+    // later slab change never rewrites this invoice. GST off = no line rates.
+    const gstOn = gstEnabled;
+    const finalLines = finalLinesRaw.map((l) => ({
+      ...l,
+      gstRate: gstOn ? (findItem(db, l.itemId)?.gstRate ?? null) : null,
+    }));
 
     if (anyShort) {
-      if (!isAdmin) return toast.error("Not enough stock for one or more items");
-      if (!override) return toast.error("Tick the override box to save with negative stock");
+      if (!isAdmin) return setError("Not enough stock for one or more items");
+      if (!override) return setError("Tick the override box to save with negative stock");
     }
 
     const extraNum = Math.max(0, Number(extraExpenses) || 0);
     const chargeExtra = extraNum > 0 && chargeExtraToCustomer;
     const gstRateNum = gstEnabled ? Math.max(0, Number(gstRate) || 0) : null;
 
+    setSaving(true);
+    setError(null);
+    let res;
     if (editing) {
       const patch = { date, customerId, lines: finalLines, isBill: mode === "group", notes: notes || undefined, extraExpenses: extraNum, extraExpensesChargeCustomer: chargeExtra, gstRate: gstRateNum };
-      set((d) => ({ ...d, sales: d.sales.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)) }));
-      toast.success("Updated");
+      res = await set((d) => ({ ...d, sales: d.sales.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)) }));
     } else {
       const sale: Sale = {
         id: newId(),
@@ -750,9 +763,11 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
         addedBy: db.currentUser,
         createdAt: nowStamp(),
       };
-      set((d) => ({ ...d, sales: [...d.sales, sale] }));
-      toast.success(mode === "group" ? "Bill created" : "Sale saved");
+      res = await set((d) => ({ ...d, sales: [...d.sales, sale] }));
     }
+    setSaving(false);
+    if (!res.ok) return setError(res.error);
+    toast.success(editing ? "Updated" : mode === "group" ? "Bill created" : "Sale saved");
     onOpenChange(false);
   };
 
@@ -781,7 +796,16 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
                 const c = rowChecks[i];
                 return (
                   <div key={i} className="rounded-lg border p-2 grid gap-2">
-                    <EntityPicker kind="item" value={l.itemId || null} onChange={(id) => updateLine(i, { itemId: id })} placeholder="Choose item" />
+                    <EntityPicker
+                      kind="item"
+                      value={l.itemId || null}
+                      onChange={(id) => {
+                        const it = id ? findItem(db, id) : undefined;
+                        const autoRate = it ? (it.price ?? lastSaleRate(db, it.id)) : null;
+                        updateLine(i, { itemId: id, ...(!l.rate && autoRate != null ? { rate: autoRate } : {}) });
+                      }}
+                      placeholder="Choose item"
+                    />
                     <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
                       <div>
                         <Label className="text-xs">Qty</Label>
@@ -857,13 +881,13 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
                 <span>
                   Add GST to this bill
                   <span className="block text-xs text-muted-foreground">
-                    {gstEnabled ? "Tax is added on top and shown on the invoice." : "No tax rows on the invoice."}
+                    {gstEnabled ? "Items with a GST slab use it; this rate covers the rest." : "No tax rows on the invoice."}
                   </span>
                 </span>
               </label>
               {gstEnabled && (
                 <div className="grid gap-1.5">
-                  <Label className="text-xs">GST rate (%)</Label>
+                  <Label className="text-xs">GST rate for items without a slab (%)</Label>
                   <div className="flex gap-2 flex-wrap items-center">
                     <NumberInput value={gstRate} onValueChange={(v) => setGstRate(v)} min={0} max={100} className="h-11 w-28" />
                     {["5", "12", "18", "28"].map((r) => (
@@ -877,7 +901,13 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
             {(() => {
               const taxBase = total + (chargeExtraToCustomer ? (Number(extraExpenses) || 0) : 0);
               const rateNum = gstEnabled ? Math.max(0, Number(gstRate) || 0) : 0;
-              const gstAmt = taxBase * (rateNum / 100);
+              // Per-line slabs from the item catalog; fallback to the sale-level rate.
+              const gstAmt = !gstEnabled ? 0 : lines.reduce((a, l) => {
+                if (!l.itemId) return a;
+                const slab = findItem(db, l.itemId)?.gstRate;
+                return a + (Number(l.qty) || 0) * (Number(l.rate) || 0) * (((slab ?? rateNum) || 0) / 100);
+              }, 0) + (chargeExtraToCustomer ? (Number(extraExpenses) || 0) * (rateNum / 100) : 0);
+              const inter = isInterState(db.shop.gstin, customerId ? findCustomer(db, customerId)?.gstin : null);
               return (
                 <div className="rounded-md bg-muted p-3 text-sm grid gap-1">
                   <div className="flex justify-between"><span className="text-muted-foreground">Items total</span><span className="tabular-nums">{fmtINR(total)}</span></div>
@@ -888,11 +918,15 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
                       <div className="flex justify-between text-xs"><span className="text-muted-foreground">Extra expenses (cost only)</span><span className="tabular-nums text-rose-600">−{fmtINR(Number(extraExpenses) || 0)}</span></div>
                     )
                   )}
-                  {rateNum > 0 && (
-                    <>
-                      <div className="flex justify-between text-xs"><span className="text-muted-foreground">CGST ({(rateNum / 2)}%)</span><span className="tabular-nums">+{fmtINR(gstAmt / 2)}</span></div>
-                      <div className="flex justify-between text-xs"><span className="text-muted-foreground">SGST ({(rateNum / 2)}%)</span><span className="tabular-nums">+{fmtINR(gstAmt / 2)}</span></div>
-                    </>
+                  {gstAmt > 0 && (
+                    inter ? (
+                      <div className="flex justify-between text-xs"><span className="text-muted-foreground">IGST (inter-state)</span><span className="tabular-nums">+{fmtINR(gstAmt)}</span></div>
+                    ) : (
+                      <>
+                        <div className="flex justify-between text-xs"><span className="text-muted-foreground">CGST</span><span className="tabular-nums">+{fmtINR(gstAmt / 2)}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-muted-foreground">SGST</span><span className="tabular-nums">+{fmtINR(gstAmt / 2)}</span></div>
+                      </>
+                    )
                   )}
                   <div className="flex justify-between text-base pt-1 border-t mt-1"><span className="text-muted-foreground">Customer pays</span><span className="font-semibold tabular-nums">{fmtINR(taxBase + gstAmt)}</span></div>
                 </div>
@@ -905,9 +939,10 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
             </div>
         </div>
 
+        <PeFormError message={error} />
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit}>{editing ? "Update" : "Create bill"}</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? "Saving…" : editing ? "Update" : "Create bill"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

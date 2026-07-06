@@ -9,6 +9,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { cn } from "@/lib/utils";
 import { useAuth, signOut } from "@/lib/auth";
 import { useBusiness } from "@/lib/business";
+import { useDB, schemaUpgradePending } from "@/lib/store";
+import { UPGRADE_SQL, SQL_EDITOR_URL } from "@/lib/upgrade-sql";
+import { toast } from "sonner";
 import { TweaksPanel } from "@/components/TweaksPanel";
 import { AppearanceMenu } from "@/lib/theme";
 
@@ -154,6 +157,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         <main className="flex-1 mx-auto w-full max-w-[1080px] px-4 md:px-11 pt-5 md:pt-10 pb-28 md:pb-16">
+          <UpgradeBanner />
           {children}
         </main>
       </div>
@@ -256,6 +260,61 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
         {subtitle && <p className="text-sm md:text-[15px] text-[color:var(--pe-ink-3)] mt-1.5 font-medium">{subtitle}</p>}
       </div>
       {action && <div className="flex gap-2 flex-wrap">{action}</div>}
+    </div>
+  );
+}
+
+// Shown to admins while the database is missing the latest migrations: the new
+// features (khata, GST, stock adjust) silently no-op until the SQL below runs.
+function UpgradeBanner() {
+  useDB(); // subscribe so the pending flag re-evaluates after each data fetch
+  const { role } = useBusiness();
+  const [dismissed, setDismissed] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+
+  if (dismissed || role !== "admin" || !schemaUpgradePending()) return null;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(UPGRADE_SQL);
+      setCopied(true);
+      toast.success("Upgrade SQL copied — paste it in the Supabase SQL editor and press Run");
+      window.setTimeout(() => setCopied(false), 4000);
+    } catch {
+      toast.error("Couldn't copy — open supabase/migrations in the project instead");
+    }
+  };
+
+  return (
+    <div className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+      <div className="text-[15px] font-bold text-amber-900">Database upgrade needed</div>
+      <p className="mt-1 text-[13px] leading-relaxed text-amber-800">
+        Khata, payments, stock adjustment, bill numbers and GST fields are switched off until the
+        database is upgraded. Copy the SQL, paste it in the Supabase SQL editor, and press Run —
+        the app picks it up automatically.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          onClick={copy}
+          className="rounded-lg bg-amber-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-amber-700"
+        >
+          {copied ? "Copied ✓" : "1. Copy upgrade SQL"}
+        </button>
+        <a
+          href={SQL_EDITOR_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-lg border border-amber-400 px-3.5 py-2 text-[13px] font-semibold text-amber-900 hover:bg-amber-100"
+        >
+          2. Open SQL editor
+        </a>
+        <button
+          onClick={() => setDismissed(true)}
+          className="rounded-lg px-3 py-2 text-[13px] font-medium text-amber-700 hover:bg-amber-100"
+        >
+          Later
+        </button>
+      </div>
     </div>
   );
 }

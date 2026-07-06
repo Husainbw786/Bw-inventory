@@ -1,10 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "tanstack-start-app",
+  "name": "bw-inventory",
   "compatibility_date": "2025-09-24",
   "compatibility_flags": ["nodejs_compat"],
   "main": "dist/server/server.js",
   "assets": { "directory": "dist/client" },
+  "observability": { "enabled": true },
   "vars": {
     "SUPABASE_URL": "https://wwerwoikflqopyrbsgva.supabase.co",
     "SUPABASE_PROJECT_ID": "wwerwoikflqopyrbsgva",

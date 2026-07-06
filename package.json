@@ -8,6 +8,8 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "deploy": "vite build && wrangler deploy -c wrangler.deploy.jsonc",
+    "deploy:dry": "vite build && wrangler deploy --dry-run --outdir=.wrangler/dry-run -c wrangler.deploy.jsonc",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

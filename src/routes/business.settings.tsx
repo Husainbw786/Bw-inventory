@@ -1,14 +1,18 @@
 import * as React from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { toast } from "sonner";
 import { ensureBackupSpreadsheet } from "@/lib/sheets.functions";
+import { waStatus, waConnect, waQr, waDisconnect } from "@/lib/whatsapp.functions";
+import { PeStatusPill } from "@/components/ui/pe";
 import { PhoneInput, isValidPhone } from "@/components/ui/phone-input";
 import { isValidGstin } from "@/lib/store";
 
@@ -126,10 +130,122 @@ function BusinessSettingsPage() {
         </p>
       </div>
 
+      <WhatsAppSection businessId={current.id} />
+
       <div className="mt-8 border-t pt-4">
         <h2 className="text-sm font-semibold text-destructive mb-2">Danger zone</h2>
         <Button variant="destructive" onClick={remove} disabled={busy}>Delete this business</Button>
       </div>
+    </div>
+  );
+}
+
+// Connect the owner's WhatsApp through the OpenWA gateway: QR login, live
+// status, disconnect. Sale bills can then be auto-sent to customers.
+function WhatsAppSection({ businessId }: { businessId: string }) {
+  const qc = useQueryClient();
+  const [qrOpen, setQrOpen] = React.useState(false);
+  const [connecting, setConnecting] = React.useState(false);
+
+  const statusQ = useQuery({
+    queryKey: ["wa-status", businessId],
+    queryFn: () => waStatus({ data: { businessId } }),
+    staleTime: 30_000,
+  });
+
+  const qrQ = useQuery({
+    queryKey: ["wa-qr", businessId],
+    queryFn: () => waQr({ data: { businessId } }),
+    enabled: qrOpen,
+    refetchInterval: 4000,
+  });
+
+  React.useEffect(() => {
+    if (qrOpen && qrQ.data?.status === "ready") {
+      setQrOpen(false);
+      toast.success("WhatsApp connected");
+      qc.invalidateQueries({ queryKey: ["wa-status", businessId] });
+    }
+  }, [qrOpen, qrQ.data?.status, qc, businessId]);
+
+  const connect = async () => {
+    setConnecting(true);
+    try {
+      const r = await waConnect({ data: { businessId } });
+      if (r.status === "ready") {
+        toast.success("WhatsApp already connected");
+        qc.invalidateQueries({ queryKey: ["wa-status", businessId] });
+      } else {
+        setQrOpen(true);
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const disconnect = async () => {
+    if (!confirm("Disconnect WhatsApp? Bills will no longer be auto-sent to customers.")) return;
+    try {
+      await waDisconnect({ data: { businessId } });
+      toast.success("WhatsApp disconnected");
+      qc.invalidateQueries({ queryKey: ["wa-status", businessId] });
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  const s = statusQ.data;
+  return (
+    <div className="mt-6">
+      <h2 className="text-sm font-semibold mb-2">WhatsApp</h2>
+      {statusQ.isLoading ? (
+        <p className="text-xs text-muted-foreground">Checking connection…</p>
+      ) : statusQ.isError ? (
+        <p className="text-xs text-destructive">{(statusQ.error as Error).message}</p>
+      ) : s?.connected ? (
+        <div className="flex items-center gap-3 flex-wrap">
+          <PeStatusPill tone="good" label="Connected" />
+          <span className="text-sm">{s.pushName ?? "WhatsApp"}{s.phone ? ` · +${s.phone}` : ""}</span>
+          <Button variant="outline" size="sm" onClick={disconnect}>Disconnect</Button>
+        </div>
+      ) : (
+        <div className="grid gap-2 justify-items-start">
+          <Button variant="outline" onClick={connect} disabled={connecting}>
+            {connecting ? "Starting…" : "Connect WhatsApp"}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Link your WhatsApp by scanning a QR code. Once connected, new bills can be sent to
+            customers automatically.
+          </p>
+        </div>
+      )}
+
+      <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Scan with WhatsApp</DialogTitle></DialogHeader>
+          <div className="grid gap-3 justify-items-center py-2">
+            {qrQ.data?.status === "failed" ? (
+              <>
+                <p className="text-sm text-destructive">Connection failed. Try again.</p>
+                <Button onClick={connect} disabled={connecting}>{connecting ? "Starting…" : "Try again"}</Button>
+              </>
+            ) : qrQ.data?.qrCode ? (
+              <>
+                <img src={qrQ.data.qrCode} alt="WhatsApp QR code" className="w-56 h-56 rounded-lg border" />
+                <p className="text-xs text-muted-foreground text-center">
+                  On your phone: WhatsApp → Settings → Linked devices → Link a device, then scan this code.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground py-8">
+                {qrQ.data?.status === "authenticating" ? "Linking your WhatsApp…" : "Preparing QR code…"}
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

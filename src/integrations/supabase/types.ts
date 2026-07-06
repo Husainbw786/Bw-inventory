@@ -130,6 +130,7 @@ export type Database = {
           phone: string | null
           sheets_spreadsheet_id: string | null
           updated_at: string
+          wa_session_id: string | null
         }
         Insert: {
           address?: string | null
@@ -141,6 +142,7 @@ export type Database = {
           phone?: string | null
           sheets_spreadsheet_id?: string | null
           updated_at?: string
+          wa_session_id?: string | null
         }
         Update: {
           address?: string | null
@@ -152,6 +154,7 @@ export type Database = {
           phone?: string | null
           sheets_spreadsheet_id?: string | null
           updated_at?: string
+          wa_session_id?: string | null
         }
         Relationships: []
       }

@@ -19,11 +19,15 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/AppLayout";
 import { EntityPicker } from "@/components/EntityPicker";
+import { useQuery } from "@tanstack/react-query";
 import { useDB, today, fmtINR, fmtDate, findCustomer, findItem, itemLabel, newId, nowStamp, billPayable, billNoLabel, stockAvailableFor, lastSaleRate, isInterState, type Sale, type SaleLine } from "@/lib/store";
 import { downloadBillPdf, printBillPdf } from "@/lib/billPdf";
+import { waStatus } from "@/lib/whatsapp.functions";
+import { sendBillOnWhatsApp } from "@/lib/whatsapp";
+import { useBusiness } from "@/lib/business";
 import { AdminDelete } from "@/components/AdminDelete";
 import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
-import { Plus, Trash2, Receipt, Pencil, AlertTriangle, Archive, IndianRupee, ArchiveRestore, MessageCircle, Wallet, BellRing, CheckCircle2, Printer, Download, Share2, MoreHorizontal, Package, Eye, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Receipt, Pencil, AlertTriangle, Archive, IndianRupee, ArchiveRestore, MessageCircle, Wallet, BellRing, CheckCircle2, Printer, Download, Share2, Send, MoreHorizontal, Package, Eye, ChevronRight } from "lucide-react";
 import { PeAvatar, PeStatusPill, toneStyle, type PeTone, PeFormError } from "@/components/ui/pe";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
@@ -36,6 +40,21 @@ export const Route = createFileRoute("/sales")({
   head: () => ({ meta: [{ title: "Sales — Shop Manager" }] }),
   component: SalesPage,
 });
+
+// Is this business's WhatsApp connected? Drives the auto-send toggle and the
+// "send via connected WhatsApp" share option.
+function useWaConnected() {
+  const { current } = useBusiness();
+  const bid = current?.id ?? null;
+  const q = useQuery({
+    queryKey: ["wa-status", bid],
+    queryFn: () => waStatus({ data: { businessId: bid! } }),
+    enabled: !!bid,
+    staleTime: 120_000,
+    retry: false,
+  });
+  return { connected: !!q.data?.connected, businessId: bid };
+}
 
 // Compact money box for the mobile sale card (Bill total / Paid / Still due).
 function MoneyBox({ label, value, tone }: { label: string; value: number; tone?: PeTone }) {
@@ -555,6 +574,7 @@ function SalesPage() {
 function ShareSheet({ sale, onClose }: { sale: Sale | null; onClose: () => void }) {
   const [db] = useDB();
   const navigate = useNavigate();
+  const { connected: waConnected, businessId } = useWaConnected();
   if (!sale) return null;
 
   const cust = findCustomer(db, sale.customerId);
@@ -564,10 +584,30 @@ function ShareSheet({ sale, onClose }: { sale: Sale | null; onClose: () => void 
   const shareMsg = `Hi ${cust?.name ?? ""}, your bill ${billNoLabel(sale)} for ${fmtINR(total)}. Thank you!`;
 
   const options = [
+    ...(waConnected && businessId
+      ? [{
+          icon: Send,
+          tone: "good" as PeTone,
+          primary: true,
+          title: "Send PDF automatically",
+          body: cust?.phone
+            ? `Sends the invoice PDF to ${cust.name} from your connected WhatsApp.`
+            : "Add a phone number to this customer first.",
+          onClick: () => {
+            if (!cust?.phone) { toast.error("Add a phone number to this customer first"); return; }
+            const t = toast.loading("Sending bill on WhatsApp…");
+            sendBillOnWhatsApp(db, sale, businessId).then(
+              () => toast.success("Bill sent on WhatsApp", { id: t }),
+              (e) => toast.error(`WhatsApp send failed — ${(e as Error).message}`, { id: t }),
+            );
+            onClose();
+          },
+        }]
+      : []),
     {
       icon: MessageCircle,
       tone: "good" as PeTone,
-      primary: true,
+      primary: !(waConnected && businessId),
       title: "Send on WhatsApp",
       body: cust?.name
         ? `Opens WhatsApp with the bill ready to send to ${cust.name}.`
@@ -647,6 +687,8 @@ function ShareSheet({ sale, onClose }: { sale: Sale | null; onClose: () => void 
 function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolean; onOpenChange: (b: boolean) => void; initialMode: "single" | "group"; editing: Sale | null }) {
   const [db, set] = useDB();
   const isAdmin = useIsAdmin();
+  const { connected: waConnected, businessId } = useWaConnected();
+  const [sendWa, setSendWa] = React.useState(false);
   const [mode, setMode] = React.useState<"single" | "group">(initialMode);
   const [date, setDate] = React.useState(today());
   const [customerId, setCustomerId] = React.useState<string | null>(null);
@@ -665,6 +707,12 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
       setOverride(false);
       setSaving(false);
       setError(null);
+      // Auto-send preference is remembered per business (new bills only).
+      setSendWa(
+        !editing &&
+          typeof window !== "undefined" &&
+          window.localStorage.getItem(`waAutoSend:${businessId ?? ""}`) === "1",
+      );
       if (editing) {
         setMode(editing.isBill ? "group" : "single");
         setDate(editing.date);
@@ -742,6 +790,7 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
     setSaving(true);
     setError(null);
     let res;
+    let createdSale: Sale | null = null;
     if (editing) {
       const patch = { date, customerId, lines: finalLines, isBill: mode === "group", notes: notes || undefined, extraExpenses: extraNum, extraExpensesChargeCustomer: chargeExtra, gstRate: gstRateNum };
       // The edit may change the total, so "fully paid" must be re-checked —
@@ -774,10 +823,19 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
         createdAt: nowStamp(),
       };
       res = await set((d) => ({ ...d, sales: [...d.sales, sale] }));
+      createdSale = sale;
     }
     setSaving(false);
     if (!res.ok) return setError(res.error);
     toast.success(editing ? "Updated" : mode === "group" ? "Bill created" : "Sale saved");
+    // Fire-and-forget, like the Sheets mirror: the sale is already saved, a
+    // WhatsApp failure only surfaces as a toast.
+    if (createdSale && sendWa && waConnected && businessId) {
+      sendBillOnWhatsApp(db, createdSale, businessId).then(
+        () => toast.success("Bill sent on WhatsApp"),
+        (e) => toast.error(`Bill saved, but WhatsApp send failed — ${(e as Error).message}`),
+      );
+    }
     onOpenChange(false);
   };
 
@@ -907,6 +965,36 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
                 </div>
               )}
             </div>
+
+            {/* WhatsApp auto-send (new bills, connected businesses only) */}
+            {!editing && waConnected && (() => {
+              const custPhone = customerId ? findCustomer(db, customerId)?.phone : undefined;
+              const noPhone = !!customerId && !custPhone;
+              return (
+                <label className={"flex items-start gap-2 text-sm rounded-md border bg-muted/40 px-2 py-2 " + (noPhone ? "opacity-60" : "cursor-pointer")}>
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    disabled={noPhone}
+                    checked={sendWa && !noPhone}
+                    onChange={(e) => {
+                      setSendWa(e.target.checked);
+                      if (typeof window !== "undefined" && businessId) {
+                        window.localStorage.setItem(`waAutoSend:${businessId}`, e.target.checked ? "1" : "0");
+                      }
+                    }}
+                  />
+                  <span>
+                    Send bill to customer on WhatsApp
+                    <span className="block text-xs text-muted-foreground">
+                      {noPhone
+                        ? "This customer has no phone number — add one to send."
+                        : "The invoice PDF is sent from your connected WhatsApp right after saving."}
+                    </span>
+                  </span>
+                </label>
+              );
+            })()}
 
             {(() => {
               const taxBase = total + (chargeExtraToCustomer ? (Number(extraExpenses) || 0) : 0);

@@ -290,6 +290,12 @@ function buildDoc(db: DB, sale: Sale) {
   return doc;
 }
 
+// Raw base64 (no data-URI prefix) for sending the invoice through APIs.
+export function billPdfBase64(db: DB, sale: Sale): string {
+  const uri = buildDoc(db, sale).output("datauristring");
+  return uri.slice(uri.indexOf("base64,") + "base64,".length);
+}
+
 export function downloadBillPdf(db: DB, sale: Sale) {
   const doc = buildDoc(db, sale);
   const customer = findCustomer(db as any, sale.customerId);

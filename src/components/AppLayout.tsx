@@ -9,8 +9,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { cn } from "@/lib/utils";
 import { useAuth, signOut } from "@/lib/auth";
 import { useBusiness } from "@/lib/business";
-import { useDB, schemaUpgradePending } from "@/lib/store";
-import { UPGRADE_SQL, SQL_EDITOR_URL } from "@/lib/upgrade-sql";
+import { useDB, schemaUpgradePending, schemaFlags } from "@/lib/store";
+import { pendingUpgradeSql, SQL_EDITOR_URL } from "@/lib/upgrade-sql";
 import { toast } from "sonner";
 import { TweaksPanel } from "@/components/TweaksPanel";
 import { AppearanceMenu } from "@/lib/theme";
@@ -276,7 +276,7 @@ function UpgradeBanner() {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(UPGRADE_SQL);
+      await navigator.clipboard.writeText(pendingUpgradeSql(schemaFlags()));
       setCopied(true);
       toast.success("Upgrade SQL copied — paste it in the Supabase SQL editor and press Run");
       window.setTimeout(() => setCopied(false), 4000);

@@ -195,6 +195,7 @@ let hasGstColumns = true;
 let hasPaymentsTable = true;
 let hasAdjustmentsTable = true;
 let hasPurchaseLink = true;
+let hasWaSession = true;
 const MIGRATION_HINT = "Database upgrade pending — apply the latest Supabase migrations to use this feature.";
 
 // Every save resolves to this; dialogs await it and stay open on failure.
@@ -203,7 +204,23 @@ export type SaveResult = { ok: true } | { ok: false; error: string };
 // True while the connected database is missing the latest migrations.
 // Refreshed on every fetchAll; the admin upgrade banner keys off this.
 export function schemaUpgradePending() {
-  return !hasGstColumns || !hasPaymentsTable || !hasAdjustmentsTable || !hasPurchaseLink;
+  return !hasGstColumns || !hasPaymentsTable || !hasAdjustmentsTable || !hasPurchaseLink || !hasWaSession;
+}
+// Which schema features the connected DB already has — the upgrade banner
+// composes its SQL from only the missing segments (re-running an applied
+// migration errors on CREATE TABLE, so never offer the full history).
+export function schemaFlags() {
+  return {
+    khata: hasPaymentsTable && hasAdjustmentsTable,
+    gst: hasGstColumns,
+    purchaseLink: hasPurchaseLink,
+    waSession: hasWaSession,
+  };
+}
+// Payments/khata capability alone — gates "Paid now" style UI without
+// coupling it to unrelated pending migrations.
+export function khataReady() {
+  return hasPaymentsTable;
 }
 
 // Turn raw Postgres/PostgREST/network errors into words a shop owner can act on.
@@ -219,7 +236,7 @@ function friendlyError(e: any): string {
 }
 
 async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> {
-  const [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, paymentsR, adjustmentsR, profilesR, gstProbeR, purchaseLinkProbeR] =
+  const [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, paymentsR, adjustmentsR, profilesR, gstProbeR, purchaseLinkProbeR, waSessionProbeR] =
     await Promise.all([
       supabase.from("items").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
       supabase.from("dealers").select("*").eq("business_id", bid).order("created_at"),
@@ -233,6 +250,7 @@ async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> 
       supabase.from("profiles").select("id, display_name"),
       supabase.from("items").select("gst_rate").limit(1), // capability probe: 42703 = old schema
       supabase.from("payments").select("purchase_id").limit(1), // capability probe: 42703 = old schema
+      supabase.from("businesses").select("wa_session_id").limit(1), // capability probe: 42703 = old schema
     ]);
 
   for (const r of [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, profilesR]) {
@@ -244,7 +262,8 @@ async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> 
   hasPaymentsTable = paymentsR.error?.code !== "PGRST205";
   hasAdjustmentsTable = adjustmentsR.error?.code !== "PGRST205";
   hasPurchaseLink = !purchaseLinkProbeR.error;
-  if (!hasGstColumns || !hasPaymentsTable || !hasAdjustmentsTable || !hasPurchaseLink) {
+  hasWaSession = !waSessionProbeR.error;
+  if (!hasGstColumns || !hasPaymentsTable || !hasAdjustmentsTable || !hasPurchaseLink || !hasWaSession) {
     console.warn("[store] DB migrations pending — running in legacy-schema mode");
   }
   const optionalRows = (r: { data: any[] | null; error: { code?: string } | null }): any[] => {

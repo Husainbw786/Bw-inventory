@@ -24,6 +24,7 @@ import {
   useDB,
   fmtINR,
   today,
+  localISO,
   totalsForRange,
   itemLabel,
   avgCostFor,
@@ -46,11 +47,11 @@ function rangeFor(preset: Preset, from: string, to: string) {
   if (preset === "week") {
     const start = new Date(d);
     start.setDate(d.getDate() - 6);
-    return { from: start.toISOString().slice(0, 10), to: t };
+    return { from: localISO(start), to: t };
   }
   if (preset === "month") {
     const start = new Date(d.getFullYear(), d.getMonth(), 1);
-    return { from: start.toISOString().slice(0, 10), to: t };
+    return { from: localISO(start), to: t };
   }
   return { from, to };
 }
@@ -61,7 +62,7 @@ function eachDay(from: string, to: string): string[] {
   const b = new Date(to + "T00:00:00");
   if (b < a) return out;
   for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) {
-    out.push(d.toISOString().slice(0, 10));
+    out.push(localISO(d));
   }
   return out;
 }
@@ -151,7 +152,8 @@ function ReportsPage() {
         Sales: Math.round(sales + billedExtras),
         Purchases: Math.round(purchases),
         Expenses: Math.round(expenses + saleExtras),
-        Profit: Math.round(sales + billedExtras - cogs - expenses - saleExtras),
+        // Charged extras are pass-through (in revenue AND cost) — see totalsForRange.
+        Profit: Math.round(sales - cogs - expenses - saleExtras),
       };
     });
   }, [db, r.from, r.to]);

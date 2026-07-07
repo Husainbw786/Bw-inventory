@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/AppLayout";
 import { EntityPicker } from "@/components/EntityPicker";
-import { useDB, today, fmtINR, fmtDate, findItem, findDealer, itemLabel, newId, nowStamp, stockOf, type Purchase , type Payment, schemaUpgradePending } from "@/lib/store";
+import { useDB, today, fmtINR, fmtDate, findItem, findDealer, itemLabel, newId, nowStamp, stockOf, type Purchase , type Payment, khataReady } from "@/lib/store";
 import { AdminDelete } from "@/components/AdminDelete";
 import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
 import { Plus, Pencil, Truck } from "lucide-react";
@@ -177,13 +177,14 @@ function PurchaseDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
           // "Paid now" settles (part of) this purchase in the dealer's khata
           // in the same save — no separate payment step for cash purchases.
           const paid = Math.min(Number(qty) * Number(rate), Math.max(0, Number(paidNow) || 0));
-          const pay: Payment | null = paid > 0 && !schemaUpgradePending()
+          const pay: Payment | null = paid > 0 && khataReady()
             ? {
                 id: newId(),
                 date,
                 partyType: "dealer",
                 partyId: dealerId,
                 saleId: null,
+                purchaseId: p.id, // deleting the purchase deletes this entry too
                 amount: paid,
                 mode: "cash",
                 notes: "Paid with purchase",
@@ -233,7 +234,7 @@ function PurchaseDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
             <span className="text-muted-foreground">Total</span>
             <span className="font-semibold tabular-nums">{fmtINR(total)}</span>
           </div>
-          {!editing && !schemaUpgradePending() && (
+          {!editing && khataReady() && (
             <div className="grid gap-1.5">
               <Label>Paid now (₹)</Label>
               <div className="flex gap-2">

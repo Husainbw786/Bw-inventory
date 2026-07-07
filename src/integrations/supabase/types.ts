@@ -130,6 +130,7 @@ export type Database = {
           phone: string | null
           sheets_spreadsheet_id: string | null
           updated_at: string
+          wa_session_id: string | null
         }
         Insert: {
           address?: string | null
@@ -141,6 +142,7 @@ export type Database = {
           phone?: string | null
           sheets_spreadsheet_id?: string | null
           updated_at?: string
+          wa_session_id?: string | null
         }
         Update: {
           address?: string | null
@@ -152,6 +154,7 @@ export type Database = {
           phone?: string | null
           sheets_spreadsheet_id?: string | null
           updated_at?: string
+          wa_session_id?: string | null
         }
         Relationships: []
       }
@@ -361,6 +364,7 @@ export type Database = {
           notes: string | null
           party_id: string
           party_type: string
+          purchase_id: string | null
           sale_id: string | null
         }
         Insert: {
@@ -374,6 +378,7 @@ export type Database = {
           notes?: string | null
           party_id: string
           party_type: string
+          purchase_id?: string | null
           sale_id?: string | null
         }
         Update: {
@@ -387,6 +392,7 @@ export type Database = {
           notes?: string | null
           party_id?: string
           party_type?: string
+          purchase_id?: string | null
           sale_id?: string | null
         }
         Relationships: [
@@ -395,6 +401,13 @@ export type Database = {
             columns: ["business_id"]
             isOneToOne: false
             referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_purchase_id_fkey"
+            columns: ["purchase_id"]
+            isOneToOne: false
+            referencedRelation: "purchases"
             referencedColumns: ["id"]
           },
           {

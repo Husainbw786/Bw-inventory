@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { PageHeader } from "@/components/AppLayout";
 import {
   useDB, newId, nowStamp, today, fmtINR, fmtDate, usageCount, type Person, type Payment,
-  type PaymentMode, PAYMENT_MODES, billTotal, partyBalance, customerLedger, dealerLedger, isValidGstin,
+  type PaymentMode, PAYMENT_MODES, billPayable, partyBalance, customerLedger, dealerLedger, isValidGstin,
 } from "@/lib/store";
 import { AdminDelete } from "@/components/AdminDelete";
 import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
@@ -124,7 +124,7 @@ function DirectoryPage() {
                 }
               : {
                   count: db.sales.filter((x) => x.customerId === p.id).length,
-                  total: db.sales.filter((x) => x.customerId === p.id).reduce((s, x) => s + billTotal(x), 0),
+                  total: db.sales.filter((x) => x.customerId === p.id).reduce((s, x) => s + billPayable(x), 0),
                   label: "sales",
                 };
             const balance = partyBalance(db, tab === "dealers" ? "dealer" : "customer", p.id);

@@ -19,11 +19,15 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/AppLayout";
 import { EntityPicker } from "@/components/EntityPicker";
-import { useDB, today, fmtINR, fmtDate, findCustomer, findItem, itemLabel, newId, nowStamp, billTotal, billNoLabel, stockAvailableFor, lastSaleRate, isInterState, type Sale, type SaleLine } from "@/lib/store";
+import { useQuery } from "@tanstack/react-query";
+import { useDB, today, fmtINR, fmtDate, findCustomer, findItem, itemLabel, newId, nowStamp, billPayable, billNoLabel, stockAvailableFor, lastSaleRate, isInterState, type Sale, type SaleLine } from "@/lib/store";
 import { downloadBillPdf, printBillPdf } from "@/lib/billPdf";
+import { waStatus } from "@/lib/whatsapp.functions";
+import { sendBillOnWhatsApp } from "@/lib/whatsapp";
+import { useBusiness } from "@/lib/business";
 import { AdminDelete } from "@/components/AdminDelete";
 import { useAuth, useIsAdmin, useCanWrite } from "@/lib/auth";
-import { Plus, Trash2, Receipt, Pencil, AlertTriangle, Archive, IndianRupee, ArchiveRestore, MessageCircle, Wallet, BellRing, CheckCircle2, Printer, Download, Share2, MoreHorizontal, Package, Eye, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Receipt, Pencil, AlertTriangle, Archive, IndianRupee, ArchiveRestore, MessageCircle, Wallet, BellRing, CheckCircle2, Printer, Download, Share2, Send, MoreHorizontal, Package, Eye, ChevronRight } from "lucide-react";
 import { PeAvatar, PeStatusPill, toneStyle, type PeTone, PeFormError } from "@/components/ui/pe";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
@@ -36,6 +40,21 @@ export const Route = createFileRoute("/sales")({
   head: () => ({ meta: [{ title: "Sales — Shop Manager" }] }),
   component: SalesPage,
 });
+
+// Is this business's WhatsApp connected? Drives the auto-send toggle and the
+// "send via connected WhatsApp" share option.
+function useWaConnected() {
+  const { current } = useBusiness();
+  const bid = current?.id ?? null;
+  const q = useQuery({
+    queryKey: ["wa-status", bid],
+    queryFn: () => waStatus({ data: { businessId: bid! } }),
+    enabled: !!bid,
+    staleTime: 120_000,
+    retry: false,
+  });
+  return { connected: !!q.data?.connected, businessId: bid };
+}
 
 // Compact money box for the mobile sale card (Bill total / Paid / Still due).
 function MoneyBox({ label, value, tone }: { label: string; value: number; tone?: PeTone }) {
@@ -75,7 +94,7 @@ function SalesPage() {
   const all = db.sales.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const visible = showArchived ? all : all.filter((s) => !s.archived);
   const statusOf = (s: Sale): "unpaid" | "partial" | "paid" => {
-    const total = billTotal(s);
+    const total = billPayable(s);
     const paid = s.amountPaid ?? 0;
     if (s.paymentReceived || paid >= total) return "paid";
     if (paid > 0) return "partial";
@@ -98,13 +117,13 @@ function SalesPage() {
   const [shareTarget, setShareTarget] = React.useState<Sale | null>(null);
 
   const openPayment = (s: Sale) => {
-    const due = Math.max(0, billTotal(s) - (s.amountPaid ?? 0));
+    const due = Math.max(0, billPayable(s) - (s.amountPaid ?? 0));
     setPayAmount(String(due > 0 ? due : ""));
     setPayTarget(s);
   };
   const savePayment = () => {
     if (!payTarget) return;
-    const total = billTotal(payTarget);
+    const total = billPayable(payTarget);
     const addRaw = Number(payAmount);
     if (!Number.isFinite(addRaw) || addRaw <= 0) {
       toast.error("Enter an amount greater than zero");
@@ -122,7 +141,7 @@ function SalesPage() {
     setPayTarget(null);
   };
   const markFullyPaid = (s: Sale) => {
-    const total = billTotal(s);
+    const total = billPayable(s);
     set((d) => ({
       ...d,
       sales: d.sales.map((x) => (x.id === s.id ? { ...x, amountPaid: total, paymentReceived: true } : x)),
@@ -207,17 +226,16 @@ function SalesPage() {
         {list.map((s) => {
           const cust = findCustomer(db, s.customerId);
           const canEdit = canWrite && (isAdmin || (user && s.createdBy === user.id));
-          const total = billTotal(s);
+          const total = billPayable(s);
           const paid = s.amountPaid ?? 0;
           const due = Math.max(0, total - paid);
           const isFullyPaid = s.paymentReceived || due <= 0;
           const isPartial = !isFullyPaid && paid > 0;
           const phone = (cust?.phone ?? "").replace(/\D/g, "");
           const waNumber = phone.length === 10 ? `91${phone}` : phone;
-          const billUrl = typeof window !== "undefined"
-            ? `${window.location.origin}/bills/${s.id}`
-            : `/bills/${s.id}`;
-          const reminderMsg = `Hi ${cust?.name ?? ""}, this is a gentle reminder to clear the pending payment of ${fmtINR(due)} for bill ${billNoLabel(s)} (total ${fmtINR(total)}, paid ${fmtINR(paid)}). Bill: ${billUrl}. Thank you!`;
+          // No bill URL in the message — /bills/$id needs a signed-in member,
+          // so customers would only see the login page.
+          const reminderMsg = `Hi ${cust?.name ?? ""}, this is a gentle reminder to clear the pending payment of ${fmtINR(due)} for bill ${billNoLabel(s)} (total ${fmtINR(total)}, paid ${fmtINR(paid)}). Thank you!`;
           const waLink = (msg: string) =>
             waNumber ? `https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}` : undefined;
           const status = statusOf(s);
@@ -415,7 +433,7 @@ function SalesPage() {
                           <AdminDelete
                             label={s.isBill ? "bill" : "sale"}
                             requireReason
-                            detail="Stock will be restored since payment isn't fully received."
+                            detail="Stock will be restored since payment isn't fully received. Any payments already recorded against this bill will also be removed from the customer's khata."
                             onConfirm={(reason) => {
                               set((d) => ({ ...d, sales: d.sales.filter((x) => x.id !== s.id) }));
                               if (reason) toast.success(`Deleted — ${reason}`);
@@ -491,7 +509,7 @@ function SalesPage() {
             <DialogTitle>Record payment</DialogTitle>
           </DialogHeader>
           {payTarget && (() => {
-            const total = billTotal(payTarget);
+            const total = billPayable(payTarget);
             const alreadyPaid = payTarget.amountPaid ?? 0;
             const due = Math.max(0, total - alreadyPaid);
             const addNum = Number(payAmount);
@@ -531,7 +549,7 @@ function SalesPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setPayTarget(null)}>Cancel</Button>
             {payTarget && (() => {
-              const total = billTotal(payTarget);
+              const total = billPayable(payTarget);
               const due = Math.max(0, total - (payTarget.amountPaid ?? 0));
               return (
                 <>
@@ -556,20 +574,40 @@ function SalesPage() {
 function ShareSheet({ sale, onClose }: { sale: Sale | null; onClose: () => void }) {
   const [db] = useDB();
   const navigate = useNavigate();
+  const { connected: waConnected, businessId } = useWaConnected();
   if (!sale) return null;
 
   const cust = findCustomer(db, sale.customerId);
-  const total = billTotal(sale);
+  const total = billPayable(sale);
   const phone = (cust?.phone ?? "").replace(/\D/g, "");
   const waNumber = phone.length === 10 ? `91${phone}` : phone;
-  const billUrl = typeof window !== "undefined" ? `${window.location.origin}/bills/${sale.id}` : `/bills/${sale.id}`;
-  const shareMsg = `Hi ${cust?.name ?? ""}, your bill ${billNoLabel(sale)} for ${fmtINR(total)} — ${billUrl}`;
+  const shareMsg = `Hi ${cust?.name ?? ""}, your bill ${billNoLabel(sale)} for ${fmtINR(total)}. Thank you!`;
 
   const options = [
+    ...(waConnected && businessId
+      ? [{
+          icon: Send,
+          tone: "good" as PeTone,
+          primary: true,
+          title: "Send PDF automatically",
+          body: cust?.phone
+            ? `Sends the invoice PDF to ${cust.name} from your connected WhatsApp.`
+            : "Add a phone number to this customer first.",
+          onClick: () => {
+            if (!cust?.phone) { toast.error("Add a phone number to this customer first"); return; }
+            const t = toast.loading("Sending bill on WhatsApp…");
+            sendBillOnWhatsApp(db, sale, businessId).then(
+              () => toast.success("Bill sent on WhatsApp", { id: t }),
+              (e) => toast.error(`WhatsApp send failed — ${(e as Error).message}`, { id: t }),
+            );
+            onClose();
+          },
+        }]
+      : []),
     {
       icon: MessageCircle,
       tone: "good" as PeTone,
-      primary: true,
+      primary: !(waConnected && businessId),
       title: "Send on WhatsApp",
       body: cust?.name
         ? `Opens WhatsApp with the bill ready to send to ${cust.name}.`
@@ -649,6 +687,8 @@ function ShareSheet({ sale, onClose }: { sale: Sale | null; onClose: () => void 
 function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolean; onOpenChange: (b: boolean) => void; initialMode: "single" | "group"; editing: Sale | null }) {
   const [db, set] = useDB();
   const isAdmin = useIsAdmin();
+  const { connected: waConnected, businessId } = useWaConnected();
+  const [sendWa, setSendWa] = React.useState(false);
   const [mode, setMode] = React.useState<"single" | "group">(initialMode);
   const [date, setDate] = React.useState(today());
   const [customerId, setCustomerId] = React.useState<string | null>(null);
@@ -667,6 +707,12 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
       setOverride(false);
       setSaving(false);
       setError(null);
+      // Auto-send preference is remembered per business (new bills only).
+      setSendWa(
+        !editing &&
+          typeof window !== "undefined" &&
+          window.localStorage.getItem(`waAutoSend:${businessId ?? ""}`) === "1",
+      );
       if (editing) {
         setMode(editing.isBill ? "group" : "single");
         setDate(editing.date);
@@ -722,12 +768,14 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
       toast.message("Single sale uses first row only");
     }
     const finalLinesRaw = mode === "single" ? cleaned.slice(0, 1) : cleaned;
-    // Snapshot each line's GST slab from the item catalog at save time, so a
-    // later slab change never rewrites this invoice. GST off = no line rates.
+    // Snapshot each NEW line's GST slab from the item catalog at save time, so
+    // a later slab change never rewrites this invoice. Lines that already have
+    // an id keep their stored snapshot — editing a bill's notes must not
+    // re-tax it from today's catalog. GST off = no line rates.
     const gstOn = gstEnabled;
     const finalLines = finalLinesRaw.map((l) => ({
       ...l,
-      gstRate: gstOn ? (findItem(db, l.itemId)?.gstRate ?? null) : null,
+      gstRate: gstOn ? (l.id ? (l.gstRate ?? null) : (findItem(db, l.itemId)?.gstRate ?? null)) : null,
     }));
 
     if (anyShort) {
@@ -742,9 +790,20 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
     setSaving(true);
     setError(null);
     let res;
+    let createdSale: Sale | null = null;
     if (editing) {
       const patch = { date, customerId, lines: finalLines, isBill: mode === "group", notes: notes || undefined, extraExpenses: extraNum, extraExpensesChargeCustomer: chargeExtra, gstRate: gstRateNum };
-      res = await set((d) => ({ ...d, sales: d.sales.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)) }));
+      // The edit may change the total, so "fully paid" must be re-checked —
+      // otherwise a bill that grew after being marked paid still shows Paid.
+      // amountPaid is never clamped down: that would erase received money.
+      res = await set((d) => ({
+        ...d,
+        sales: d.sales.map((x) => {
+          if (x.id !== editing.id) return x;
+          const updated = { ...x, ...patch };
+          return { ...updated, paymentReceived: (x.amountPaid ?? 0) >= billPayable(updated) };
+        }),
+      }));
     } else {
       const sale: Sale = {
         id: newId(),
@@ -764,10 +823,19 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
         createdAt: nowStamp(),
       };
       res = await set((d) => ({ ...d, sales: [...d.sales, sale] }));
+      createdSale = sale;
     }
     setSaving(false);
     if (!res.ok) return setError(res.error);
     toast.success(editing ? "Updated" : mode === "group" ? "Bill created" : "Sale saved");
+    // Fire-and-forget, like the Sheets mirror: the sale is already saved, a
+    // WhatsApp failure only surfaces as a toast.
+    if (createdSale && sendWa && waConnected && businessId) {
+      sendBillOnWhatsApp(db, createdSale, businessId).then(
+        () => toast.success("Bill sent on WhatsApp"),
+        (e) => toast.error(`Bill saved, but WhatsApp send failed — ${(e as Error).message}`),
+      );
+    }
     onOpenChange(false);
   };
 
@@ -897,6 +965,36 @@ function SaleDialog({ open, onOpenChange, initialMode, editing }: { open: boolea
                 </div>
               )}
             </div>
+
+            {/* WhatsApp auto-send (new bills, connected businesses only) */}
+            {!editing && waConnected && (() => {
+              const custPhone = customerId ? findCustomer(db, customerId)?.phone : undefined;
+              const noPhone = !!customerId && !custPhone;
+              return (
+                <label className={"flex items-start gap-2 text-sm rounded-md border bg-muted/40 px-2 py-2 " + (noPhone ? "opacity-60" : "cursor-pointer")}>
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    disabled={noPhone}
+                    checked={sendWa && !noPhone}
+                    onChange={(e) => {
+                      setSendWa(e.target.checked);
+                      if (typeof window !== "undefined" && businessId) {
+                        window.localStorage.setItem(`waAutoSend:${businessId}`, e.target.checked ? "1" : "0");
+                      }
+                    }}
+                  />
+                  <span>
+                    Send bill to customer on WhatsApp
+                    <span className="block text-xs text-muted-foreground">
+                      {noPhone
+                        ? "This customer has no phone number — add one to send."
+                        : "The invoice PDF is sent from your connected WhatsApp right after saving."}
+                    </span>
+                  </span>
+                </label>
+              );
+            })()}
 
             {(() => {
               const taxBase = total + (chargeExtraToCustomer ? (Number(extraExpenses) || 0) : 0);

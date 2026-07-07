@@ -2,7 +2,7 @@ import * as React from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/AppLayout";
-import { useDB, fmtINR, fmtDate, findCustomer, billTotal, billNoLabel, type Sale } from "@/lib/store";
+import { useDB, fmtINR, fmtDate, findCustomer, billPayable, billNoLabel, type Sale } from "@/lib/store";
 import { AdminDelete } from "@/components/AdminDelete";
 import { useIsAdmin, useCanWrite } from "@/lib/auth";
 import { Archive, ArchiveRestore, IndianRupee } from "lucide-react";
@@ -97,7 +97,7 @@ function BillsList() {
                       <div className="text-xs text-muted-foreground">{fmtDate(s.date)} · {s.lines.length} item{s.lines.length > 1 ? "s" : ""}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-semibold tabular-nums">{fmtINR(billTotal(s))}</div>
+                      <div className="text-sm font-semibold tabular-nums">{fmtINR(billPayable(s))}</div>
                       <div className="text-xs text-muted-foreground">{billNoLabel(s)}</div>
                     </div>
                   </CardContent>

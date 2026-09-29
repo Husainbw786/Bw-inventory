@@ -106,7 +106,7 @@ export function EntityPicker({
 
 // Quick-add with the SAME field set as the full Items/Directory dialogs, so
 // records created mid-bill aren't second-class (missing price/GST/GSTIN).
-function AddDialog({
+export function AddDialog({
   kind,
   open,
   onOpenChange,

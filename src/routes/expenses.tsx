@@ -1,5 +1,5 @@
 import * as React from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,10 @@ import { NumberInput } from "@/components/ui/number-input";
 const CATS = ["Transport", "Rent", "Tea & Snacks", "Electricity", "Repairs", "Stationery", "Other"];
 
 export const Route = createFileRoute("/expenses")({
+  // ?new=1 opens the create dialog straight away (dashboard quick actions, Ctrl+K)
+  validateSearch: (search: Record<string, unknown>): { new?: boolean } => ({
+    new: search.new === true || search.new === "true" || search.new === "1" ? true : undefined,
+  }),
   head: () => ({ meta: [{ title: "Expenses — Shop Manager" }] }),
   component: ExpensesPage,
 });
@@ -28,6 +32,15 @@ function ExpensesPage() {
   const canWrite = useCanWrite();
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Expense | null>(null);
+  const navigate = useNavigate();
+  const search = Route.useSearch();
+  React.useEffect(() => {
+    if (search.new && canWrite) {
+      setEditing(null);
+      setOpen(true);
+      navigate({ to: "/expenses", search: {}, replace: true });
+    }
+  }, [search.new, canWrite, navigate]);
   const list = db.expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const monthTotal = list

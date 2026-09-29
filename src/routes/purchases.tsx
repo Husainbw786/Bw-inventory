@@ -1,5 +1,5 @@
 import * as React from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,10 @@ import { NumberInput } from "@/components/ui/number-input";
 import { PeAvatar, PeFormError } from "@/components/ui/pe";
 
 export const Route = createFileRoute("/purchases")({
+  // ?new=1 opens the create dialog straight away (dashboard quick actions, Ctrl+K)
+  validateSearch: (search: Record<string, unknown>): { new?: boolean } => ({
+    new: search.new === true || search.new === "true" || search.new === "1" ? true : undefined,
+  }),
   head: () => ({ meta: [{ title: "Purchases — Shop Manager" }] }),
   component: PurchasesPage,
 });
@@ -27,6 +31,15 @@ function PurchasesPage() {
   const canWrite = useCanWrite();
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Purchase | null>(null);
+  const navigate = useNavigate();
+  const search = Route.useSearch();
+  React.useEffect(() => {
+    if (search.new && canWrite) {
+      setEditing(null);
+      setOpen(true);
+      navigate({ to: "/purchases", search: {}, replace: true });
+    }
+  }, [search.new, canWrite, navigate]);
 
   const list = db.purchases.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 

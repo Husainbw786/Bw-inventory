@@ -21,6 +21,7 @@ import { Route as DirectoryRouteImport } from './routes/directory'
 import { Route as BillsRouteImport } from './routes/bills'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SalesNewRouteImport } from './routes/sales_.new'
 import { Route as ItemsIdRouteImport } from './routes/items.$id'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as BusinessSettingsRouteImport } from './routes/business.settings'
@@ -87,6 +88,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SalesNewRoute = SalesNewRouteImport.update({
+  id: '/sales_/new',
+  path: '/sales/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ItemsIdRoute = ItemsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -131,6 +137,7 @@ export interface FileRoutesByFullPath {
   '/business/settings': typeof BusinessSettingsRoute
   '/invite/$token': typeof InviteTokenRoute
   '/items/$id': typeof ItemsIdRoute
+  '/sales/new': typeof SalesNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -150,6 +157,7 @@ export interface FileRoutesByTo {
   '/business/settings': typeof BusinessSettingsRoute
   '/invite/$token': typeof InviteTokenRoute
   '/items/$id': typeof ItemsIdRoute
+  '/sales/new': typeof SalesNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -170,6 +178,7 @@ export interface FileRoutesById {
   '/business/settings': typeof BusinessSettingsRoute
   '/invite/$token': typeof InviteTokenRoute
   '/items/$id': typeof ItemsIdRoute
+  '/sales_/new': typeof SalesNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -191,6 +200,7 @@ export interface FileRouteTypes {
     | '/business/settings'
     | '/invite/$token'
     | '/items/$id'
+    | '/sales/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -210,6 +220,7 @@ export interface FileRouteTypes {
     | '/business/settings'
     | '/invite/$token'
     | '/items/$id'
+    | '/sales/new'
   id:
     | '__root__'
     | '/'
@@ -229,6 +240,7 @@ export interface FileRouteTypes {
     | '/business/settings'
     | '/invite/$token'
     | '/items/$id'
+    | '/sales_/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -247,6 +259,7 @@ export interface RootRouteChildren {
   BusinessNewRoute: typeof BusinessNewRoute
   BusinessSettingsRoute: typeof BusinessSettingsRoute
   InviteTokenRoute: typeof InviteTokenRoute
+  SalesNewRoute: typeof SalesNewRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -335,6 +348,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sales_/new': {
+      id: '/sales_/new'
+      path: '/sales/new'
+      fullPath: '/sales/new'
+      preLoaderRoute: typeof SalesNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/items/$id': {
       id: '/items/$id'
       path: '/$id'
@@ -409,6 +429,7 @@ const rootRouteChildren: RootRouteChildren = {
   BusinessNewRoute: BusinessNewRoute,
   BusinessSettingsRoute: BusinessSettingsRoute,
   InviteTokenRoute: InviteTokenRoute,
+  SalesNewRoute: SalesNewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

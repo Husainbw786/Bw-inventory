@@ -4,7 +4,7 @@ Shop inventory & billing app for a small trading business — track items, purch
 
 Built with **TanStack Start (React 19) + Supabase**, deployed to **Cloudflare Workers**.
 
-**Live:** https://tanstack-start-app.bw-inventory.workers.dev
+**Live:** https://bwinventory.husainbw.in (custom domain on the `bw-inventory` Worker; `bw-inventory.bw-inventory.workers.dev` serves the same deploy).
 
 ## Features
 
@@ -18,7 +18,9 @@ Built with **TanStack Start (React 19) + Supabase**, deployed to **Cloudflare Wo
 - **Reports** (`/reports`) — charts via Recharts.
 - **Members & invites** (`/members`, `/invite/$token`) — invite users to a business by link; roles enforced by Postgres RLS.
 - **Business onboarding/settings** (`/onboarding`, `/business/new`, `/business/settings`) — create/switch businesses; optional Google Sheets backup mirror.
-- **Auth** (`/auth`, `/reset-password`) — Supabase email/password auth.
+- **Auth** (`/auth`, `/reset-password`) — Supabase email/password and Google sign-in.
+- **Privacy policy** (`/privacy`) — public page required for the Play Store listing; also covers account deletion (by email via `SUPPORT_EMAIL` in [support.ts](src/lib/support.ts)).
+- **Installable app (PWA)** — web manifest, icons, a minimal service worker with an offline page, and an "Install app" entry; see [Android app](#android-app) below.
 - **Appearance** — light theme with selectable accent colour ([theme.tsx](src/lib/theme.tsx)); fully responsive with dedicated mobile card layouts.
 
 ## Tech stack
@@ -110,3 +112,22 @@ npx wrangler deploy -c wrangler.deploy.jsonc   # needs CLOUDFLARE_API_TOKEN + CL
 Two wrangler configs exist on purpose: `wrangler.jsonc` (dev, entry `src/server.ts`) and `wrangler.deploy.jsonc` (deploy, entry `dist/server/server.js` + built assets).
 
 Database changes go through Supabase migrations in [supabase/migrations/](supabase/migrations/), applied with the Supabase CLI.
+
+## Android app
+
+The Android app is the website packaged as a **Trusted Web Activity (TWA)**: a Play Store app that opens the production origin in the user's Chrome, full screen, with no browser UI. Nothing is rewritten; the same deploy serves both.
+
+**Web side (this repo, `public/`):**
+
+| File | Purpose |
+|---|---|
+| `manifest.webmanifest` | Name, colours, `start_url`, icons, home-screen shortcuts. Linked from `__root.tsx`. |
+| `sw.js` | Service worker: offline fallback page + cache for hashed `/assets/`. Never caches HTML, `/_serverFn/` or Supabase. Bump `CACHE_VERSION` to flush. Registered in production only ([pwa.ts](src/lib/pwa.ts)). |
+| `offline.html` | Self-contained page shown when a navigation fails offline (served at `/offline`; Cloudflare strips the extension). |
+| `_headers` | Cloudflare static-asset headers: `no-cache` for the worker/manifest, immutable for `/assets/*`. |
+| `.well-known/assetlinks.json` | Digital Asset Links. Must list the SHA-256 of the Android signing certificates (upload key + Play App Signing key) or the TWA shows Chrome's toolbar. |
+| `icons/` | `icon.svg` is the source; PNGs are rendered by `node scripts/gen-icons.mjs [--font IBMPlexSans-Bold.ttf]`. Replace `icon.svg` with real artwork and re-run. Play Store assets land in `android/store-assets/`. |
+
+The "Install app" entry (mobile **More** sheet and the desktop user menu) appears only when Chrome offers `beforeinstallprompt`, i.e. not once installed.
+
+**Android side:** [android/twa-manifest.json](android/twa-manifest.json) + the [android.yml](.github/workflows/android.yml) workflow build a signed `.aab` with [Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap); keystore setup, secrets, the asset-links rollout and the Play Console checklist are in [android/README.md](android/README.md). Play requires a privacy policy URL (`/privacy`) and an account-deletion path (the "Delete my account" link in Business settings). Set `SUPPORT_EMAIL` in [support.ts](src/lib/support.ts) before publishing.

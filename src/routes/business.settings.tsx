@@ -1,5 +1,5 @@
 import * as React from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
+import { useAuth } from "@/lib/auth";
+import { accountDeletionMailto } from "@/lib/support";
 import { toast } from "sonner";
 import { ensureBackupSpreadsheet } from "@/lib/sheets.functions";
 import { waStatus, waConnect, waQr, waDisconnect } from "@/lib/whatsapp.functions";
@@ -23,6 +25,7 @@ export const Route = createFileRoute("/business/settings")({
 
 function BusinessSettingsPage() {
   const { current, role, refresh } = useBusiness();
+  const { session } = useAuth();
   const nav = useNavigate();
   const [name, setName] = React.useState(current?.name ?? "");
   const [phone, setPhone] = React.useState(current?.phone ?? "");
@@ -134,7 +137,16 @@ function BusinessSettingsPage() {
 
       <div className="mt-8 border-t pt-4">
         <h2 className="text-sm font-semibold text-destructive mb-2">Danger zone</h2>
-        <Button variant="destructive" onClick={remove} disabled={busy}>Delete this business</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="destructive" onClick={remove} disabled={busy}>Delete this business</Button>
+          <Button variant="outline" asChild>
+            <a href={accountDeletionMailto(session?.user.email)}>Delete my account</a>
+          </Button>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Account deletion is handled by email and completed within 30 days. See the{" "}
+          <Link to="/privacy" className="underline">privacy policy</Link>.
+        </p>
       </div>
     </div>
   );

@@ -1,0 +1,174 @@
+name: Android app (TWA)
+
+# Builds the signed Android App Bundle for Google Play from android/twa-manifest.json
+# using Bubblewrap. The web app must already be deployed at the host in that file:
+# Bubblewrap downloads the live manifest and icons while generating the project.
+#
+# Triggers: manual (Actions tab → "Run workflow") or a tag like `android-v1.2.0`.
+# Outputs: app-release-bundle.aab (upload to Play) and app-release-signed.apk
+# (sideload for testing) as workflow artifacts, attached to the GitHub release on tags.
+#
+# Required repository secrets (see android/README.md):
+#   ANDROID_UPLOAD_KEYSTORE_B64  base64 of upload.keystore
+#   ANDROID_KEYSTORE_PASSWORD    keystore password
+#   ANDROID_KEY_PASSWORD         password of the "upload" key
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Version name shown in Play (e.g. 1.2.0). Empty = keep android/twa-manifest.json's value."
+        required: false
+        default: ""
+  push:
+    tags: ["android-v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BUBBLEWRAP_VERSION: "1.25.0"
+  # Must match BUILD_TOOLS_VERSION inside @bubblewrap/core (it runs zipalign/apksigner from here).
+  BUBBLEWRAP_BUILD_TOOLS: "36.1.0"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Bubblewrap 1.25 checks for JDK 17 exactly (reads JAVA_VERSION="17.0…" from $JAVA_HOME/release).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Template targets SDK 36 with AGP 8.9 (build-tools 35 is AGP's default; 36.1.0 is Bubblewrap's).
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;36.1.0 build-tools;35.0.0 platform-tools"
+
+      - name: Configure Bubblewrap
+        run: |
+          set -euo pipefail
+          # Bubblewrap validates the SDK path by looking for <sdk>/tools or <sdk>/bin
+          # (old cmdline-tools layout); the runner only has cmdline-tools/latest/bin.
+          ln -sfn "$ANDROID_HOME/cmdline-tools/latest/bin" "$ANDROID_HOME/bin"
+          test -d "$ANDROID_HOME/build-tools/$BUBBLEWRAP_BUILD_TOOLS"
+          npm install -g "@bubblewrap/cli@$BUBBLEWRAP_VERSION"
+          mkdir -p ~/.bubblewrap
+          printf '{"jdkPath":"%s","androidSdkPath":"%s"}\n' "$JAVA_HOME" "$ANDROID_HOME" > ~/.bubblewrap/config.json
+          bubblewrap --version || true
+
+      - name: Set version
+        id: version
+        run: |
+          set -euo pipefail
+          NAME="${{ github.event.inputs.version_name }}"
+          if [[ "${GITHUB_REF}" == refs/tags/android-v* ]]; then
+            NAME="${GITHUB_REF#refs/tags/android-v}"
+          fi
+          if [[ -n "$NAME" ]]; then
+            node scripts/android-set-version.mjs --code "${{ github.run_number }}" --name "$NAME"
+          else
+            node scripts/android-set-version.mjs --code "${{ github.run_number }}"
+          fi
+          echo "name=$(node -p "require('./android/twa-manifest.json').appVersion")" >> "$GITHUB_OUTPUT"
+          echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Check the web app is live at the TWA host
+        run: |
+          set -euo pipefail
+          HOST="$(node -p "require('./android/twa-manifest.json').host")"
+          echo "host=$HOST"
+          for p in /manifest.webmanifest /icons/icon-512.png /icons/icon-512-maskable.png /icons/icon-192.png /.well-known/assetlinks.json; do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' "https://$HOST$p")"
+            echo "$code  $p"
+            [[ "$code" == "200" ]] || { echo "::error::https://$HOST$p returned $code — deploy the web side (push to main) first"; exit 1; }
+          done
+          if [[ "$(curl -sS "https://$HOST/.well-known/assetlinks.json")" == "[]" ]]; then
+            echo "::warning::assetlinks.json is empty — the app will show Chrome's toolbar until the signing fingerprints are published (see android/README.md)"
+          fi
+
+      - name: Restore upload keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_B64" ]]; then
+            echo "::error::Secret ANDROID_UPLOAD_KEYSTORE_B64 is not set — see android/README.md"; exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > android/upload.keystore
+          test -s android/upload.keystore
+
+      - name: Generate Android project
+        working-directory: android
+        run: bubblewrap update --skipVersionUpgrade --manifest=twa-manifest.json
+
+      - name: Build and sign
+        working-directory: android
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$BUBBLEWRAP_KEYSTORE_PASSWORD" || -z "$BUBBLEWRAP_KEY_PASSWORD" ]]; then
+            echo "::error::ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_PASSWORD secrets are not set"; exit 1
+          fi
+          bubblewrap build --manifest=twa-manifest.json
+          ls -la app-release-bundle.aab app-release-signed.apk
+
+      - name: Verify signature and report the certificate fingerprint
+        working-directory: android
+        run: |
+          set -euo pipefail
+          APKSIGNER="$ANDROID_HOME/build-tools/$BUBBLEWRAP_BUILD_TOOLS/apksigner"
+          "$APKSIGNER" verify --print-certs app-release-signed.apk | tee certs.txt
+          SHA="$(grep -i 'SHA-256' certs.txt | head -1 | sed -E 's/.*: *//' | tr 'a-f' 'A-F' | sed -E 's/(..)/\1:/g; s/:$//')"
+          {
+            echo "## BW Inventory Android ${{ steps.version.outputs.name }} (versionCode ${{ steps.version.outputs.code }})"
+            echo
+            echo "Upload-key certificate SHA-256 (for \`public/.well-known/assetlinks.json\` and \`twa-manifest.json\` → \`fingerprints\`):"
+            echo
+            echo '```'
+            echo "$SHA"
+            echo '```'
+            echo
+            echo "Play App Signing re-signs the bundle; add the *app signing* certificate SHA-256 from Play Console → App integrity as well."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rename outputs
+        working-directory: android
+        run: |
+          mv app-release-bundle.aab "bw-inventory-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}.aab"
+          mv app-release-signed.apk "bw-inventory-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bw-inventory-android-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}
+          path: |
+            android/bw-inventory-*.aab
+            android/bw-inventory-*.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Attach to GitHub release (tag builds)
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            android/bw-inventory-*.aab
+            android/bw-inventory-*.apk
+          generate_release_notes: true
+
+      - name: Remove keystore from the runner
+        if: always()
+        run: rm -f android/upload.keystore

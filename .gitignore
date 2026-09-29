@@ -35,3 +35,24 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Android (Bubblewrap regenerates everything except twa-manifest.json, README and store-assets)
+android/app/
+android/build/
+android/gradle/
+android/.gradle/
+android/build.gradle
+android/settings.gradle
+android/gradle.properties
+android/gradlew
+android/gradlew.bat
+android/enable-debug.sh
+android/local.properties
+android/store_icon.png
+android/manifest-checksum.txt
+android/certs.txt
+android/*.keystore
+android/*.jks
+android/*.apk
+android/*.aab
+android/*.idsig

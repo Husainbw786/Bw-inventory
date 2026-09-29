@@ -85,7 +85,7 @@ export const Route = createFileRoute("/sales")({
 });
 
 type Status = "unpaid" | "partial" | "paid";
-const COLS = "90px minmax(0,2fr) minmax(0,1fr) 56px 120px 100px 236px";
+const COLS = "84px minmax(0,2fr) minmax(0,1fr) 52px 110px 96px 270px";
 
 const statusOf = (s: Sale): Status => {
   const total = billPayable(s);
@@ -350,7 +350,7 @@ function SalesPage() {
         }}
         className={full ? "flex-1" : ""}
       >
-        <Wallet className="h-4 w-4" /> Record payment
+        <Wallet className="h-4 w-4" /> {full ? "Record payment" : "Record"}
       </PeBtn>
     ) : (
       <span
@@ -478,7 +478,7 @@ function SalesPage() {
 
         {/* Desktop table */}
         <div className="hidden md:block">
-          <PeTable minWidth={900}>
+          <PeTable minWidth={960}>
             <PeTHead template={COLS}>
               <span>Bill</span>
               <span>Customer</span>
@@ -541,7 +541,7 @@ function SalesPage() {
                     />
                   </span>
                   <div
-                    className="flex items-center justify-end gap-1.5"
+                    className="flex items-center justify-end gap-1.5 whitespace-nowrap"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {payBtn(s, info)}

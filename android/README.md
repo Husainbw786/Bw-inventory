@@ -22,7 +22,7 @@ keytool -genkeypair -v -keystore upload.keystore -alias upload \
   -dname "CN=BW Inventory, O=BW Inventory, C=IN"
 ```
 
-Use two passwords **without double quotes** (Bubblewrap wraps them in quotes when calling the signing tools). Keep `upload.keystore` somewhere safe outside the repo; it is git-ignored. Losing it is recoverable only because Play App Signing (step 5) holds the real app signing key, but you would have to request an upload-key reset from Google.
+`keytool` creates a PKCS12 keystore, which has **one password for both the store and the key** (a separate `-keypass` is silently ignored), so `ANDROID_KEY_PASSWORD` must be the same value as `ANDROID_KEYSTORE_PASSWORD`. Use a password **without double quotes** (Bubblewrap wraps it in quotes when calling the signing tools). Keep `upload.keystore` somewhere safe outside the repo; it is git-ignored. Losing it is recoverable only because Play App Signing (step 5) holds the real app signing key, but you would have to request an upload-key reset from Google.
 
 Print its certificate fingerprint; you need it in step 6:
 

@@ -125,6 +125,8 @@ jobs:
       - name: Restore upload keystore
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           if [[ -z "$KEYSTORE_B64" ]]; then
@@ -132,6 +134,17 @@ jobs:
           fi
           echo "$KEYSTORE_B64" | base64 -d > android/upload.keystore
           test -s android/upload.keystore
+          # Fail here, in a second, rather than after a full Gradle build if a password is wrong.
+          ALIAS="$(node -p "require('./android/twa-manifest.json').signingKey.alias")"
+          if ! keytool -list -keystore android/upload.keystore -storepass "$KS_PASS" -alias "$ALIAS" >/dev/null 2>&1; then
+            echo "::error::ANDROID_KEYSTORE_PASSWORD does not open the keystore, or alias '$ALIAS' is missing"; exit 1
+          fi
+          if ! keytool -importkeystore -srckeystore android/upload.keystore -srcstorepass "$KS_PASS" -srckeypass "$KEY_PASS" \
+               -srcalias "$ALIAS" -destkeystore /tmp/keycheck.p12 -deststorepass keycheck1 -destkeypass keycheck1 -noprompt >/dev/null 2>&1; then
+            echo "::error::ANDROID_KEY_PASSWORD does not unlock key '$ALIAS'. For a PKCS12 keystore (the keytool default) the key password is the keystore password — set ANDROID_KEY_PASSWORD to the same value as ANDROID_KEYSTORE_PASSWORD."; exit 1
+          fi
+          rm -f /tmp/keycheck.p12
+          echo "keystore and key passwords verified"
 
       - name: Generate Android project
         working-directory: android

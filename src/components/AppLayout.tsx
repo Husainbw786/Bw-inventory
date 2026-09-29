@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Home,
@@ -22,6 +23,10 @@ import {
   IndianRupee,
   Check,
   User as UserIcon,
+  ArrowDownLeft,
+  ArrowUpRight,
+  UserPlus,
+  X,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
@@ -109,13 +114,114 @@ const ALL_NAV = NAV_GROUPS.flatMap((g) => g.items);
 // centered and all tab slots equal width. Everything else lives in the "More" sheet.
 const MOBILE_PRIMARY = ["/", "/sales", "/items"] as const;
 
+// Pages can replace the mobile top bar with their own dark header (title,
+// back button, hero figures — see the Mobile Emerald screens) and hide the
+// bottom nav while a full-screen flow (bill composer, quick entry) is open.
+type MobileHeaderCtx = {
+  el: HTMLDivElement | null;
+  setCustom: (on: boolean) => void;
+  setHideNav: (on: boolean) => void;
+};
+const MobileCtx = React.createContext<MobileHeaderCtx>({
+  el: null,
+  setCustom: () => {},
+  setHideNav: () => {},
+});
+export function MobileHeader({
+  children,
+  hideNav,
+}: {
+  children: React.ReactNode;
+  hideNav?: boolean;
+}) {
+  const { el, setCustom, setHideNav } = React.useContext(MobileCtx);
+  React.useLayoutEffect(() => {
+    setCustom(true);
+    setHideNav(!!hideNav);
+    return () => {
+      setCustom(false);
+      setHideNav(false);
+    };
+  }, [hideNav, setCustom, setHideNav]);
+  if (!el) return null;
+  return createPortal(<div className="md:hidden text-white">{children}</div>, el);
+}
+
+// Add-menu items behind the mobile "+" (New bill is the primary row above them).
+const ADD_MENU: {
+  label: string;
+  sub: string;
+  icon: React.ComponentType<{ className?: string }>;
+  bg: string;
+  fg: string;
+  go: (nav: ReturnType<typeof useNavigate>) => void;
+}[] = [
+  {
+    label: "New purchase",
+    sub: "Stock from a dealer",
+    icon: TrendingDown,
+    bg: "var(--pe-info-bg)",
+    fg: "var(--pe-info)",
+    go: (n) => n({ to: "/entry", search: { type: "purchase" } }),
+  },
+  {
+    label: "Add expense",
+    sub: "Rent, transport, salary",
+    icon: Wallet,
+    bg: "var(--pe-warn-bg)",
+    fg: "var(--pe-warn)",
+    go: (n) => n({ to: "/entry", search: { type: "expense" } }),
+  },
+  {
+    label: "Get payment",
+    sub: "Money from a customer",
+    icon: ArrowDownLeft,
+    bg: "var(--pe-good-bg)",
+    fg: "var(--pe-good)",
+    go: (n) => n({ to: "/entry", search: { type: "in" } }),
+  },
+  {
+    label: "Pay dealer",
+    sub: "Money you paid out",
+    icon: ArrowUpRight,
+    bg: "var(--pe-bad-bg)",
+    fg: "var(--pe-bad)",
+    go: (n) => n({ to: "/entry", search: { type: "out" } }),
+  },
+  {
+    label: "Add item",
+    sub: "New product to sell",
+    icon: Package,
+    bg: "var(--pe-green-soft)",
+    fg: "var(--pe-green)",
+    go: (n) => n({ to: "/items", search: { new: true } }),
+  },
+  {
+    label: "Add party",
+    sub: "Customer or dealer",
+    icon: UserPlus,
+    bg: "#F0EEE5",
+    fg: "var(--pe-ink-2)",
+    go: (n) => n({ to: "/directory", search: { new: true } }),
+  },
+];
+
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const { displayName } = useAuth();
   const { current, memberships, role, switchTo } = useBusiness();
   const [db] = useDB();
   const [moreOpen, setMoreOpen] = React.useState(false);
+  const [addOpen, setAddOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
+  const navigate = useNavigate();
+  const [slotEl, setSlotEl] = React.useState<HTMLDivElement | null>(null);
+  const [customHeader, setCustomHeader] = React.useState(false);
+  const [hideNav, setHideNav] = React.useState(false);
+  const mobileCtx = React.useMemo(
+    () => ({ el: slotEl, setCustom: setCustomHeader, setHideNav }),
+    [slotEl],
+  );
 
   const canWrite = role === "admin" || role === "editor";
   const visible = ALL_NAV.filter((n) => !n.adminOnly || role === "admin");
@@ -215,233 +321,340 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="min-h-dvh flex flex-col bg-background text-foreground">
-      <header
-        className="sticky top-0 z-30 print:hidden text-white"
-        style={{ background: "var(--pe-header)" }}
-      >
-        {/* Top bar */}
-        <div className="flex items-center gap-2.5 md:gap-3.5 mx-auto w-full max-w-[1320px] px-4 md:px-8 py-3">
-          {BusinessSwitcher}
-
-          {/* Desktop search box */}
-          <button
-            type="button"
-            onClick={() => setSearchOpen(true)}
-            className="hidden md:flex flex-1 items-center gap-2.5 min-w-0 mx-auto text-left"
-            style={{
-              maxWidth: 560,
-              height: 38,
-              padding: "0 12px",
-              borderRadius: 8,
-              background: "rgba(255,255,255,.08)",
-              border: "1px solid var(--pe-header-line)",
-              cursor: "text",
-            }}
-          >
-            <Search className="h-4 w-4 shrink-0" style={{ color: "rgba(255,255,255,.6)" }} />
-            <span
-              className="flex-1 min-w-0 truncate text-[14px]"
-              style={{ color: "rgba(255,255,255,.6)" }}
-            >
-              Search items, bills, customers…
-            </span>
-            <span
-              className="text-[11.5px] font-semibold"
-              style={{
-                color: "rgba(255,255,255,.6)",
-                padding: "2px 7px",
-                borderRadius: 5,
-                border: "1px solid rgba(255,255,255,.18)",
-              }}
-            >
-              Ctrl K
-            </span>
-          </button>
-          <div className="flex-1 md:hidden" />
-
-          <button
-            type="button"
-            aria-label="Search"
-            onClick={() => setSearchOpen(true)}
-            className="md:hidden"
-            style={iconBtn}
-          >
-            <Search className="h-[18px] w-[18px]" />
-          </button>
-
-          <AlertsMenu lowCount={lowCount} style={iconBtn} />
-
-          {canWrite && (
-            <Link
-              to="/sales/new"
-              className="pe-btn-gold hidden sm:flex items-center gap-2 shrink-0 font-bold text-[14px]"
-              style={{
-                height: 38,
-                padding: "0 16px",
-                borderRadius: 8,
-                background: "var(--pe-gold)",
-                color: "var(--pe-gold-ink)",
-              }}
-            >
-              <Plus className="h-[17px] w-[17px]" strokeWidth={2.5} /> New bill
-            </Link>
-          )}
-
-          <UserMenu displayName={displayName} role={role} />
-        </div>
-
-        {/* Desktop grouped nav */}
-        <nav
-          className="hidden md:flex flex-wrap mx-auto w-full max-w-[1320px] px-[26px]"
-          style={{ gap: "0 4px" }}
+    <MobileCtx.Provider value={mobileCtx}>
+      <div className="min-h-dvh flex flex-col bg-background text-foreground">
+        <header
+          className="sticky top-0 z-30 print:hidden text-white"
+          style={{ background: "var(--pe-header)" }}
         >
-          {NAV_GROUPS.map((g) => {
-            const items = g.items.filter((n) => !n.adminOnly || role === "admin");
-            if (!items.length) return null;
-            return (
-              <div
-                key={g.title}
-                className="flex shrink-0"
+          {/* Page-provided mobile header (see MobileHeader) */}
+          <div ref={setSlotEl} className="md:hidden" />
+          {/* Top bar */}
+          <div
+            className={
+              "items-center gap-2.5 md:gap-3.5 mx-auto w-full max-w-[1320px] px-4 md:px-8 py-3 " +
+              (customHeader ? "hidden md:flex" : "flex")
+            }
+          >
+            {BusinessSwitcher}
+
+            {/* Desktop search box */}
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              className="hidden md:flex flex-1 items-center gap-2.5 min-w-0 mx-auto text-left"
+              style={{
+                maxWidth: 560,
+                height: 38,
+                padding: "0 12px",
+                borderRadius: 8,
+                background: "rgba(255,255,255,.08)",
+                border: "1px solid var(--pe-header-line)",
+                cursor: "text",
+              }}
+            >
+              <Search className="h-4 w-4 shrink-0" style={{ color: "rgba(255,255,255,.6)" }} />
+              <span
+                className="flex-1 min-w-0 truncate text-[14px]"
+                style={{ color: "rgba(255,255,255,.6)" }}
+              >
+                Search items, bills, customers…
+              </span>
+              <span
+                className="text-[11.5px] font-semibold"
                 style={{
-                  paddingRight: 6,
-                  marginRight: 4,
-                  borderRight: "1px solid rgba(255,255,255,.12)",
+                  color: "rgba(255,255,255,.6)",
+                  padding: "2px 7px",
+                  borderRadius: 5,
+                  border: "1px solid rgba(255,255,255,.18)",
                 }}
               >
-                {items.map((n) => {
-                  const Icon = n.icon;
-                  const on = isActive(n.to, n.exact);
-                  const badge = n.badge === "low" && lowCount > 0 ? lowCount : null;
-                  return (
-                    <Link
-                      key={n.to}
-                      to={n.to}
-                      className="pe-tab flex items-center gap-[7px] whitespace-nowrap text-[14px]"
-                      style={{
-                        padding: "11px 10px",
-                        fontWeight: on ? 700 : 500,
-                        color: on ? "#fff" : "var(--pe-header-fg)",
-                        boxShadow: on ? "inset 0 -3px 0 var(--pe-gold)" : "none",
-                      }}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" strokeWidth={on ? 2.2 : 1.9} />
-                      <span>{n.label}</span>
-                      {badge != null && (
-                        <span
-                          className="text-[11px] font-bold"
-                          style={{
-                            padding: "1px 6px",
-                            borderRadius: 999,
-                            background: "var(--pe-warn-bg)",
-                            color: "var(--pe-warn)",
-                          }}
-                        >
-                          {badge}
-                        </span>
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </nav>
-      </header>
+                Ctrl K
+              </span>
+            </button>
+            <div className="flex-1 md:hidden" />
 
-      <main className="flex-1 mx-auto w-full max-w-[1320px] px-4 md:px-8 pt-5 md:pt-7 pb-28 md:pb-16 pe-scroll">
-        <UpgradeBanner />
-        {children}
-      </main>
+            <button
+              type="button"
+              aria-label="Search"
+              onClick={() => setSearchOpen(true)}
+              className="md:hidden"
+              style={iconBtn}
+            >
+              <Search className="h-[18px] w-[18px]" />
+            </button>
 
-      {/* Mobile bottom nav with center FAB */}
-      <nav
-        className="md:hidden fixed bottom-0 left-0 right-0 z-30 print:hidden flex items-center"
-        style={{
-          background: "color-mix(in srgb, var(--pe-surface) 94%, transparent)",
-          backdropFilter: "blur(12px)",
-          borderTop: "1px solid var(--pe-line)",
-          padding: "8px 6px calc(8px + env(safe-area-inset-bottom))",
-        }}
-      >
-        {MOBILE_PRIMARY.slice(0, 2).map((to) => (
-          <MobileTab
-            key={to}
-            item={visible.find((x) => x.to === to)!}
-            active={isActive(to, to === "/")}
-          />
-        ))}
-        <Link
-          to="/sales/new"
-          aria-label="New bill"
-          className="shrink-0 mx-1.5 flex items-center justify-center shadow-lg"
+            <AlertsMenu lowCount={lowCount} style={iconBtn} />
+
+            {canWrite && (
+              <Link
+                to="/sales/new"
+                className="pe-btn-gold hidden sm:flex items-center gap-2 shrink-0 font-bold text-[14px]"
+                style={{
+                  height: 38,
+                  padding: "0 16px",
+                  borderRadius: 8,
+                  background: "var(--pe-gold)",
+                  color: "var(--pe-gold-ink)",
+                }}
+              >
+                <Plus className="h-[17px] w-[17px]" strokeWidth={2.5} /> New bill
+              </Link>
+            )}
+
+            <UserMenu displayName={displayName} role={role} />
+          </div>
+
+          {/* Desktop grouped nav */}
+          <nav
+            className="hidden md:flex flex-wrap mx-auto w-full max-w-[1320px] px-[26px]"
+            style={{ gap: "0 4px" }}
+          >
+            {NAV_GROUPS.map((g) => {
+              const items = g.items.filter((n) => !n.adminOnly || role === "admin");
+              if (!items.length) return null;
+              return (
+                <div
+                  key={g.title}
+                  className="flex shrink-0"
+                  style={{
+                    paddingRight: 6,
+                    marginRight: 4,
+                    borderRight: "1px solid rgba(255,255,255,.12)",
+                  }}
+                >
+                  {items.map((n) => {
+                    const Icon = n.icon;
+                    const on = isActive(n.to, n.exact);
+                    const badge = n.badge === "low" && lowCount > 0 ? lowCount : null;
+                    return (
+                      <Link
+                        key={n.to}
+                        to={n.to}
+                        className="pe-tab flex items-center gap-[7px] whitespace-nowrap text-[14px]"
+                        style={{
+                          padding: "11px 10px",
+                          fontWeight: on ? 700 : 500,
+                          color: on ? "#fff" : "var(--pe-header-fg)",
+                          boxShadow: on ? "inset 0 -3px 0 var(--pe-gold)" : "none",
+                        }}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" strokeWidth={on ? 2.2 : 1.9} />
+                        <span>{n.label}</span>
+                        {badge != null && (
+                          <span
+                            className="text-[11px] font-bold"
+                            style={{
+                              padding: "1px 6px",
+                              borderRadius: 999,
+                              background: "var(--pe-warn-bg)",
+                              color: "var(--pe-warn)",
+                            }}
+                          >
+                            {badge}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </nav>
+        </header>
+
+        <main className="flex-1 mx-auto w-full max-w-[1320px] px-4 md:px-8 pt-5 md:pt-7 pb-28 md:pb-16 pe-scroll">
+          <UpgradeBanner />
+          {children}
+        </main>
+
+        {/* Mobile bottom nav with center FAB */}
+        <nav
+          className={
+            "md:hidden fixed bottom-0 left-0 right-0 z-30 print:hidden items-center " +
+            (hideNav ? "hidden" : "flex")
+          }
           style={{
-            width: 52,
-            height: 52,
-            borderRadius: 16,
-            background: "var(--pe-gold)",
-            color: "var(--pe-gold-ink)",
-            boxShadow: "0 6px 18px rgba(244,201,93,.45)",
+            background: "color-mix(in srgb, var(--pe-surface) 94%, transparent)",
+            backdropFilter: "blur(12px)",
+            borderTop: "1px solid var(--pe-line)",
+            padding: "8px 6px calc(8px + env(safe-area-inset-bottom))",
           }}
         >
-          <Plus className="h-[26px] w-[26px]" strokeWidth={2.6} />
-        </Link>
-        {MOBILE_PRIMARY.slice(2).map((to) => (
-          <MobileTab key={to} item={visible.find((x) => x.to === to)!} active={isActive(to)} />
-        ))}
-        <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-          <SheetTrigger asChild>
-            <button
-              className="flex-1 flex flex-col items-center gap-0.5 py-1.5"
-              style={{ color: "var(--pe-ink-3)" }}
-            >
-              <Menu className="h-[22px] w-[22px]" />
-              <span className="text-[11px] font-semibold">More</span>
-            </button>
-          </SheetTrigger>
-          <SheetContent side="bottom" className="rounded-t-2xl max-h-[85dvh] overflow-y-auto">
-            <SheetHeader className="text-left">
-              <SheetTitle>More</SheetTitle>
-            </SheetHeader>
-            <div className="mt-2 grid gap-2">
-              {visible
-                .filter((n) => !(MOBILE_PRIMARY as readonly string[]).includes(n.to))
-                .map((n) => {
-                  const Icon = n.icon;
+          {MOBILE_PRIMARY.slice(0, 2).map((to) => (
+            <MobileTab
+              key={to}
+              item={visible.find((x) => x.to === to)!}
+              active={isActive(to, to === "/")}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => (canWrite ? setAddOpen(true) : navigate({ to: "/sales" }))}
+            aria-label="Add"
+            className="shrink-0 mx-1.5 flex items-center justify-center text-white"
+            style={{
+              width: 54,
+              height: 54,
+              borderRadius: 16,
+              background: "var(--pe-green)",
+              boxShadow: "0 6px 18px rgba(14,107,87,.3)",
+            }}
+          >
+            <Plus className="h-[26px] w-[26px]" strokeWidth={2.6} />
+          </button>
+          {MOBILE_PRIMARY.slice(2).map((to) => (
+            <MobileTab key={to} item={visible.find((x) => x.to === to)!} active={isActive(to)} />
+          ))}
+          <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+            <SheetTrigger asChild>
+              <button
+                className="flex-1 flex flex-col items-center gap-0.5 py-1.5"
+                style={{ color: "var(--pe-ink-3)" }}
+              >
+                <Menu className="h-[22px] w-[22px]" />
+                <span className="text-[11px] font-semibold">More</span>
+              </button>
+            </SheetTrigger>
+            <SheetContent side="bottom" className="rounded-t-2xl max-h-[85dvh] overflow-y-auto">
+              <SheetHeader className="text-left">
+                <SheetTitle>More</SheetTitle>
+              </SheetHeader>
+              <div className="mt-2 grid gap-2">
+                {visible
+                  .filter((n) => !(MOBILE_PRIMARY as readonly string[]).includes(n.to))
+                  .map((n) => {
+                    const Icon = n.icon;
+                    return (
+                      <Link
+                        key={n.to}
+                        to={n.to}
+                        onClick={() => setMoreOpen(false)}
+                        className="flex items-center gap-3 rounded-xl border border-[color:var(--pe-line)] bg-card p-3 pe-card-hover"
+                      >
+                        <span
+                          className="inline-flex items-center justify-center"
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 11,
+                            background: "var(--pe-green-soft)",
+                            color: "var(--pe-green)",
+                          }}
+                        >
+                          <Icon className="h-5 w-5" />
+                        </span>
+                        <span className="flex-1 font-semibold text-[color:var(--pe-ink)]">
+                          {n.label}
+                        </span>
+                        <ChevronRight className="h-5 w-5 text-[color:var(--pe-ink-3)]" />
+                      </Link>
+                    );
+                  })}
+              </div>
+            </SheetContent>
+          </Sheet>
+        </nav>
+
+        {/* Mobile "+" → what do you want to add? */}
+        <Sheet open={addOpen} onOpenChange={setAddOpen}>
+          <SheetContent
+            side="bottom"
+            className="rounded-t-3xl p-0 [&>button]:hidden max-h-[90dvh] overflow-y-auto"
+          >
+            <div style={{ padding: "10px 16px calc(20px + env(safe-area-inset-bottom))" }}>
+              <div
+                className="mx-auto mb-3.5"
+                style={{ width: 40, height: 5, borderRadius: 999, background: "var(--pe-line)" }}
+              />
+              <div className="flex items-center justify-between" style={{ padding: "0 4px 12px" }}>
+                <SheetTitle className="text-[18px] font-bold text-[color:var(--pe-ink)]">
+                  What do you want to add?
+                </SheetTitle>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  onClick={() => setAddOpen(false)}
+                  className="inline-flex items-center justify-center text-[color:var(--pe-ink-2)]"
+                  style={{ width: 34, height: 34, borderRadius: 999, background: "var(--pe-bg)" }}
+                >
+                  <X className="h-[17px] w-[17px]" />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddOpen(false);
+                  navigate({ to: "/sales/new" });
+                }}
+                className="w-full flex items-center gap-3 text-left text-white"
+                style={{ padding: 14, borderRadius: 14, background: "var(--pe-green)" }}
+              >
+                <span
+                  className="inline-flex items-center justify-center shrink-0"
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    background: "rgba(255,255,255,.18)",
+                  }}
+                >
+                  <Receipt className="h-[22px] w-[22px]" />
+                </span>
+                <span className="flex-1">
+                  <span className="block text-[16px] font-bold">New bill</span>
+                  <span className="block text-[12.5px]" style={{ color: "rgba(255,255,255,.78)" }}>
+                    Sell items to a customer
+                  </span>
+                </span>
+                <ChevronRight className="h-[18px] w-[18px] opacity-70" />
+              </button>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                {ADD_MENU.map((a) => {
+                  const Icon = a.icon;
                   return (
-                    <Link
-                      key={n.to}
-                      to={n.to}
-                      onClick={() => setMoreOpen(false)}
-                      className="flex items-center gap-3 rounded-xl border border-[color:var(--pe-line)] bg-card p-3 pe-card-hover"
+                    <button
+                      key={a.label}
+                      type="button"
+                      onClick={() => {
+                        setAddOpen(false);
+                        a.go(navigate);
+                      }}
+                      className="flex flex-col gap-2 text-left bg-white"
+                      style={{ padding: 13, borderRadius: 14, border: "1px solid var(--pe-line)" }}
                     >
                       <span
                         className="inline-flex items-center justify-center"
                         style={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: 11,
-                          background: "var(--pe-green-soft)",
-                          color: "var(--pe-green)",
+                          width: 38,
+                          height: 38,
+                          borderRadius: 10,
+                          background: a.bg,
+                          color: a.fg,
                         }}
                       >
-                        <Icon className="h-5 w-5" />
+                        <Icon className="h-[19px] w-[19px]" />
                       </span>
-                      <span className="flex-1 font-semibold text-[color:var(--pe-ink)]">
-                        {n.label}
+                      <span>
+                        <span className="block text-[14px] font-bold text-[color:var(--pe-ink)]">
+                          {a.label}
+                        </span>
+                        <span className="block text-[12px] text-[color:var(--pe-ink-3)] mt-px">
+                          {a.sub}
+                        </span>
                       </span>
-                      <ChevronRight className="h-5 w-5 text-[color:var(--pe-ink-3)]" />
-                    </Link>
+                    </button>
                   );
                 })}
+              </div>
             </div>
           </SheetContent>
         </Sheet>
-      </nav>
 
-      <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} canWrite={canWrite} />
-      <TweaksPanel />
-    </div>
+        <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} canWrite={canWrite} />
+        <TweaksPanel />
+      </div>
+    </MobileCtx.Provider>
   );
 }
 

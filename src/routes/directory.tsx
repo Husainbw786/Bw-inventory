@@ -39,6 +39,8 @@ import {
   MessageCircle,
   Download,
   ArrowLeft,
+  ArrowDownLeft,
+  FileText,
   Search,
   MoreHorizontal,
 } from "lucide-react";
@@ -75,15 +77,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { contactsSupported, pickContacts } from "@/lib/contacts";
 import { downloadStatementPdf } from "@/lib/statementPdf";
+import { MobileHeader } from "@/components/AppLayout";
 
 type Tab = "customers" | "dealers";
 type Kind = "customer" | "dealer";
 
 export const Route = createFileRoute("/directory")({
   // ?tab=customers|dealers&party=<id> deep-links straight into a khata
-  validateSearch: (search: Record<string, unknown>): { tab?: Tab; party?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { tab?: Tab; party?: string; new?: boolean } => ({
     ...(search.tab === "customers" || search.tab === "dealers" ? { tab: search.tab } : {}),
     ...(typeof search.party === "string" && search.party ? { party: search.party } : {}),
+    ...(search.new === true || search.new === "true" || search.new === "1" ? { new: true } : {}),
   }),
   head: () => ({ meta: [{ title: "Directory & khata — Shop Manager" }] }),
   component: DirectoryPage,
@@ -125,6 +131,14 @@ function DirectoryPage() {
       setShowDetail(true);
     }
   }, [search.tab, search.party]);
+  // ?new=1 (mobile "+" menu → Add party) opens the form straight away.
+  React.useEffect(() => {
+    if (search.new && canWrite) {
+      setEditing(null);
+      setOpen(true);
+      navigate({ to: "/directory", search: search.tab ? { tab: search.tab } : {}, replace: true });
+    }
+  }, [search.new, search.tab, canWrite, navigate]);
 
   const kind: Kind = tab === "dealers" ? "dealer" : "customer";
   const all = tab === "dealers" ? db.dealers : db.customers;
@@ -204,40 +218,103 @@ function DirectoryPage() {
 
   return (
     <>
-      <PeTitle
-        title="Directory & khata"
-        sub={
-          <>
-            You&apos;ll receive{" "}
-            <span className="font-bold" style={{ color: "var(--pe-bad)" }}>
-              {fmtINR(receivable)}
-            </span>
-            {" · "}you owe{" "}
-            <span className="font-bold" style={{ color: "var(--pe-warn)" }}>
-              {fmtINR(payable)}
-            </span>
-          </>
-        }
-        actions={
-          canWrite ? (
-            <>
-              {canImport && (
-                <PeBtn variant="outline" onClick={handleImport} disabled={importing}>
-                  <Contact className="h-4 w-4" /> Import
-                </PeBtn>
+      {!showDetail && (
+        <MobileHeader>
+          <div style={{ padding: "6px 18px 16px" }}>
+            <div className="flex items-center gap-2.5">
+              <div className="flex-1 text-[20px] font-bold">Directory &amp; khata</div>
+              {canWrite && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditing(null);
+                    setOpen(true);
+                  }}
+                  className="inline-flex items-center text-[13.5px] font-bold"
+                  style={{
+                    height: 36,
+                    padding: "0 13px",
+                    borderRadius: 10,
+                    background: "var(--pe-gold)",
+                    color: "var(--pe-gold-ink)",
+                  }}
+                >
+                  + Add
+                </button>
               )}
-              <PeBtn
-                onClick={() => {
-                  setEditing(null);
-                  setOpen(true);
+            </div>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <div
+                style={{
+                  background: "rgba(255,255,255,.08)",
+                  borderRadius: 12,
+                  padding: "10px 12px",
                 }}
               >
-                <Plus className="h-4 w-4" strokeWidth={2.5} /> Add {kind}
-              </PeBtn>
+                <div className="text-[11.5px]" style={{ color: "rgba(255,255,255,.65)" }}>
+                  You&apos;ll receive
+                </div>
+                <div className="text-[18px] font-bold tabular-nums" style={{ color: "#F9B4AC" }}>
+                  {fmtINR(receivable)}
+                </div>
+              </div>
+              <div
+                style={{
+                  background: "rgba(255,255,255,.08)",
+                  borderRadius: 12,
+                  padding: "10px 12px",
+                }}
+              >
+                <div className="text-[11.5px]" style={{ color: "rgba(255,255,255,.65)" }}>
+                  You&apos;ll pay
+                </div>
+                <div
+                  className="text-[18px] font-bold tabular-nums"
+                  style={{ color: "var(--pe-gold)" }}
+                >
+                  {fmtINR(payable)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </MobileHeader>
+      )}
+      <div className="hidden md:block">
+        <PeTitle
+          title="Directory & khata"
+          sub={
+            <>
+              You&apos;ll receive{" "}
+              <span className="font-bold" style={{ color: "var(--pe-bad)" }}>
+                {fmtINR(receivable)}
+              </span>
+              {" · "}you owe{" "}
+              <span className="font-bold" style={{ color: "var(--pe-warn)" }}>
+                {fmtINR(payable)}
+              </span>
             </>
-          ) : null
-        }
-      />
+          }
+          actions={
+            canWrite ? (
+              <>
+                {canImport && (
+                  <PeBtn variant="outline" onClick={handleImport} disabled={importing}>
+                    <Contact className="h-4 w-4" /> Import
+                  </PeBtn>
+                )}
+                <PeBtn
+                  onClick={() => {
+                    setEditing(null);
+                    setOpen(true);
+                  }}
+                >
+                  <Plus className="h-4 w-4" strokeWidth={2.5} /> Add {kind}
+                </PeBtn>
+              </>
+            ) : null
+          }
+        />
+      </div>
 
       <div className="flex flex-wrap gap-4 items-start">
         {/* Party list */}
@@ -339,18 +416,13 @@ function DirectoryPage() {
           className={"flex-col gap-3.5 min-w-0 " + (showDetail ? "flex" : "hidden md:flex")}
           style={{ flex: "999 1 480px" }}
         >
-          <button
-            type="button"
-            onClick={() => setShowDetail(false)}
-            className="md:hidden inline-flex items-center gap-1.5 text-[13px] font-semibold text-[color:var(--pe-green)] self-start"
-          >
-            <ArrowLeft className="h-4 w-4" /> All {tab}
-          </button>
           {selected ? (
             <PartyDetail
               key={selected.id}
               person={selected}
               kind={kind}
+              mobileHeader={showDetail}
+              onBack={() => setShowDetail(false)}
               canWrite={canWrite}
               canEdit={canWrite && (isAdmin || (!!user && selected.createdBy === user.id))}
               onEdit={() => {
@@ -378,6 +450,8 @@ function DirectoryPage() {
 function PartyDetail({
   person,
   kind,
+  mobileHeader,
+  onBack,
   canWrite,
   canEdit,
   onEdit,
@@ -385,12 +459,19 @@ function PartyDetail({
 }: {
   person: Person;
   kind: Kind;
+  mobileHeader: boolean;
+  onBack: () => void;
   canWrite: boolean;
   canEdit: boolean;
   onEdit: () => void;
   onDeleted: () => void;
 }) {
   const [db, set] = useDB();
+  const payRef = React.useRef<HTMLDivElement>(null);
+  const focusPay = () => {
+    payRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    payRef.current?.querySelector("input")?.focus();
+  };
   const [amount, setAmount] = React.useState("");
   const [date, setDate] = React.useState(today());
   const [mode, setMode] = React.useState<PaymentMode>("cash");
@@ -490,9 +571,112 @@ function PartyDetail({
     background: "var(--pe-surface)",
   };
 
+  const heroColor = balance > 0 ? (kind === "dealer" ? "var(--pe-gold)" : "#F9B4AC") : "#86EFAC";
+  const mobileAction: React.CSSProperties = {
+    height: 40,
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,.2)",
+    fontSize: 13,
+    fontWeight: 600,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#fff",
+  };
+
   return (
     <>
-      <PeCard flat pad={22} style={{ padding: "20px 22px" }}>
+      {mobileHeader && (
+        <MobileHeader>
+          <div style={{ padding: "6px 16px 18px" }}>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                aria-label="Back"
+                onClick={onBack}
+                className="inline-flex items-center justify-center"
+                style={{ width: 40, height: 40 }}
+              >
+                <ArrowLeft className="h-[22px] w-[22px]" />
+              </button>
+              <div className="flex-1 min-w-0">
+                <div className="text-[17px] font-bold truncate">{person.name}</div>
+                <div className="text-[11.5px] truncate" style={{ color: "rgba(255,255,255,.62)" }}>
+                  {meta || "No contact details yet"}
+                </div>
+              </div>
+            </div>
+            <div className="mt-3.5" style={{ padding: "0 6px" }}>
+              <div className="text-[12.5px]" style={{ color: "rgba(255,255,255,.65)" }}>
+                {label}
+              </div>
+              <div
+                className="text-[32px] font-bold tracking-[-0.02em] tabular-nums"
+                style={{ color: heroColor }}
+              >
+                {fmtINR(Math.abs(balance))}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-3.5">
+              {canWrite ? (
+                <button
+                  type="button"
+                  onClick={focusPay}
+                  style={{
+                    ...mobileAction,
+                    border: 0,
+                    background: "var(--pe-gold)",
+                    color: "var(--pe-gold-ink)",
+                    fontWeight: 700,
+                  }}
+                >
+                  {kind === "dealer" ? "Pay dealer" : "Get paid"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => downloadStatementPdf(db.shop, kind, person, ledger)}
+                  style={{
+                    ...mobileAction,
+                    border: 0,
+                    background: "var(--pe-gold)",
+                    color: "var(--pe-gold-ink)",
+                    fontWeight: 700,
+                  }}
+                >
+                  Statement
+                </button>
+              )}
+              {kind === "customer" && balance > 0 ? (
+                <button type="button" onClick={remind} style={mobileAction}>
+                  Remind
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => downloadStatementPdf(db.shop, kind, person, ledger)}
+                  style={mobileAction}
+                >
+                  Statement
+                </button>
+              )}
+              {person.phone ? (
+                <a href={`tel:${person.phone}`} style={mobileAction}>
+                  Call
+                </a>
+              ) : canEdit ? (
+                <button type="button" onClick={onEdit} style={mobileAction}>
+                  Edit
+                </button>
+              ) : (
+                <span style={{ ...mobileAction, opacity: 0.5 }}>Call</span>
+              )}
+            </div>
+          </div>
+        </MobileHeader>
+      )}
+
+      <PeCard flat pad={22} className="hidden md:block" style={{ padding: "20px 22px" }}>
         <div className="flex items-center gap-3.5 flex-wrap">
           <PeAvatar name={person.name} tone={kind === "dealer" ? "info" : "green"} size={48} />
           <div className="flex-1 min-w-[180px]">
@@ -582,45 +766,109 @@ function PartyDetail({
       </PeCard>
 
       {canWrite && (
-        <PeCard flat style={{ padding: "16px 20px" }}>
-          <div className="text-[14.5px] font-bold text-[color:var(--pe-ink)] mb-3">
-            {kind === "dealer" ? "Record payment to dealer" : "Record payment received"}
-          </div>
-          <div className="flex gap-2.5 flex-wrap items-center">
-            <div style={{ flex: "1 1 160px", minWidth: 140 }}>
-              <PeMoneyInput value={amount} onChange={setAmount} placeholder="Amount" />
+        <div ref={payRef} style={{ scrollMarginTop: 12 }}>
+          <PeCard flat style={{ padding: "16px 20px" }}>
+            <div className="text-[14.5px] font-bold text-[color:var(--pe-ink)] mb-3">
+              {kind === "dealer" ? "Record payment to dealer" : "Record payment received"}
             </div>
-            <Input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="h-[42px] rounded-[10px]"
-              style={{ flex: "0 1 150px" }}
-            />
-            <div style={{ flex: "1 1 260px" }}>
-              <PeModePicker options={MODES} value={mode} onChange={setMode} />
+            <div className="flex gap-2.5 flex-wrap items-center">
+              <div style={{ flex: "1 1 160px", minWidth: 140 }}>
+                <PeMoneyInput value={amount} onChange={setAmount} placeholder="Amount" />
+              </div>
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="h-[42px] rounded-[10px]"
+                style={{ flex: "0 1 150px" }}
+              />
+              <div style={{ flex: "1 1 260px" }}>
+                <PeModePicker options={MODES} value={mode} onChange={setMode} />
+              </div>
+              <Input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Note (optional)"
+                maxLength={120}
+                className="h-[42px] rounded-[10px]"
+                style={{ flex: "1 1 160px" }}
+              />
+              <PeBtn
+                onClick={recordPayment}
+                disabled={saving}
+                style={{ height: 42, padding: "0 18px" }}
+              >
+                {saving ? "Saving…" : "Record"}
+              </PeBtn>
             </div>
-            <Input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Note (optional)"
-              maxLength={120}
-              className="h-[42px] rounded-[10px]"
-              style={{ flex: "1 1 160px" }}
-            />
-            <PeBtn
-              onClick={recordPayment}
-              disabled={saving}
-              style={{ height: 42, padding: "0 18px" }}
-            >
-              {saving ? "Saving…" : "Record"}
-            </PeBtn>
-          </div>
-          <PeFormError message={error} />
-        </PeCard>
+            <PeFormError message={error} />
+          </PeCard>
+        </div>
       )}
 
-      <PeCard pad={0} flat className="overflow-hidden">
+      {/* Mobile: ledger as cards (design: 05 Party ledger) */}
+      <div className="md:hidden grid gap-2">
+        <div className="text-[11.5px] font-bold uppercase tracking-[0.06em] text-[color:var(--pe-ink-3)]">
+          Entries
+        </div>
+        {rows.map((e) => {
+          const debit = e.debit > 0;
+          return (
+            <div
+              key={`m-${e.kind}-${e.id}`}
+              className="bg-white flex items-center gap-2.5"
+              style={{ border: "1px solid var(--pe-line)", borderRadius: 12, padding: "11px 14px" }}
+            >
+              <span
+                className="inline-flex items-center justify-center shrink-0"
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  background: debit ? "var(--pe-bad-bg)" : "var(--pe-good-bg)",
+                  color: debit ? "var(--pe-bad)" : "var(--pe-good)",
+                }}
+              >
+                {debit ? <FileText className="h-4 w-4" /> : <ArrowDownLeft className="h-4 w-4" />}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] font-semibold text-[color:var(--pe-ink)] truncate">
+                  {e.label}
+                </div>
+                <div className="text-[12px] text-[color:var(--pe-ink-3)] truncate">
+                  {fmtDate(e.date)}
+                  {e.payment?.mode ? ` · ${e.payment.mode.toUpperCase()}` : ""}
+                  {e.payment?.notes ? ` · ${e.payment.notes}` : ""}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div
+                  className="text-[14.5px] font-bold tabular-nums"
+                  style={{ color: debit ? "var(--pe-bad)" : "var(--pe-good)" }}
+                >
+                  {debit ? `+ ${fmtINR(e.debit)}` : `− ${fmtINR(e.credit)}`}
+                </div>
+                <div className="text-[11px] text-[color:var(--pe-ink-3)] tabular-nums">
+                  bal {fmtINR(e.running)}
+                </div>
+              </div>
+              {canWrite && e.kind === "payment" && !e.payment?.saleId && (
+                <AdminDelete
+                  label="payment entry"
+                  onConfirm={() =>
+                    set((d) => ({ ...d, payments: d.payments.filter((x) => x.id !== e.id) }))
+                  }
+                />
+              )}
+            </div>
+          );
+        })}
+        {rows.length === 0 && (
+          <PeEmpty pad={20}>No entries yet — bills and payments will show up here.</PeEmpty>
+        )}
+      </div>
+
+      <PeCard pad={0} flat className="overflow-hidden hidden md:block">
         <PeTable minWidth={580}>
           <PeTHead template={LEDGER_COLS}>
             <span>Date</span>

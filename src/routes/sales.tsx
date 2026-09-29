@@ -73,6 +73,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { NumberInput } from "@/components/ui/number-input";
+import { MobileHeader } from "@/components/AppLayout";
 
 export const Route = createFileRoute("/sales")({
   // Legacy: ?new=1 used to open the bill dialog here; it now forwards to /sales/new.
@@ -381,29 +382,58 @@ function SalesPage() {
 
   return (
     <>
-      <PeTitle
-        title="Sales & bills"
-        sub={
-          dueTotal > 0 ? (
-            <>
-              Everything you&apos;ve sold ·{" "}
-              <span className="font-bold" style={{ color: "var(--pe-bad)" }}>
-                {fmtINR(dueTotal)}
-              </span>{" "}
-              still to collect
-            </>
-          ) : (
-            "Everything you've sold — and who still owes you"
-          )
-        }
-        actions={
-          canWrite ? (
-            <PeBtn onClick={() => navigate({ to: "/sales/new" })}>
-              <Plus className="h-4 w-4" strokeWidth={2.5} /> New bill
-            </PeBtn>
-          ) : null
-        }
-      />
+      <MobileHeader>
+        <div className="flex items-center gap-2.5" style={{ padding: "6px 18px 14px" }}>
+          <div className="flex-1 min-w-0">
+            <div className="text-[20px] font-bold">Sales &amp; bills</div>
+            <div className="text-[12px]" style={{ color: "rgba(255,255,255,.62)" }}>
+              {visible.length} bill{visible.length === 1 ? "" : "s"}
+              {dueTotal > 0 ? ` · ${fmtINR(dueTotal)} to collect` : ""}
+            </div>
+          </div>
+          {canWrite && (
+            <button
+              type="button"
+              onClick={() => navigate({ to: "/sales/new" })}
+              className="inline-flex items-center text-[13.5px] font-bold"
+              style={{
+                height: 38,
+                padding: "0 14px",
+                borderRadius: 10,
+                background: "var(--pe-gold)",
+                color: "var(--pe-gold-ink)",
+              }}
+            >
+              + New bill
+            </button>
+          )}
+        </div>
+      </MobileHeader>
+      <div className="hidden md:block">
+        <PeTitle
+          title="Sales & bills"
+          sub={
+            dueTotal > 0 ? (
+              <>
+                Everything you&apos;ve sold ·{" "}
+                <span className="font-bold" style={{ color: "var(--pe-bad)" }}>
+                  {fmtINR(dueTotal)}
+                </span>{" "}
+                still to collect
+              </>
+            ) : (
+              "Everything you've sold — and who still owes you"
+            )
+          }
+          actions={
+            canWrite ? (
+              <PeBtn onClick={() => navigate({ to: "/sales/new" })}>
+                <Plus className="h-4 w-4" strokeWidth={2.5} /> New bill
+              </PeBtn>
+            ) : null
+          }
+        />
+      </div>
 
       <PeCard pad={0} flat className="overflow-hidden">
         <div

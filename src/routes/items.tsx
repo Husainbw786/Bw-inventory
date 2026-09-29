@@ -13,6 +13,7 @@ import {
   itemLabel,
   newId,
   nowStamp,
+  today,
   usageCount,
   GST_SLABS,
   type Item,
@@ -28,6 +29,8 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Plus, Search, Pencil, MoreHorizontal, SlidersHorizontal } from "lucide-react";
+import { MobileHeader } from "@/components/AppLayout";
+import { khataReady, type Purchase, type Payment, type PaymentMode } from "@/lib/store";
 import { toast } from "sonner";
 import { NumberInput } from "@/components/ui/number-input";
 import {
@@ -50,20 +53,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 type StockFilter = "all" | "low" | "out";
 
 export const Route = createFileRoute("/items")({
   // ?filter=low|out pre-selects a stock filter (dashboard "View items", alerts bell)
-  validateSearch: (search: Record<string, unknown>): { filter?: "low" | "out" } => ({
+  validateSearch: (search: Record<string, unknown>): { filter?: "low" | "out"; new?: boolean } => ({
     ...(search.filter === "low" || search.filter === "out" ? { filter: search.filter } : {}),
+    ...(search.new === true || search.new === "true" || search.new === "1" ? { new: true } : {}),
   }),
   head: () => ({
     meta: [
@@ -82,7 +79,7 @@ function ItemsPage() {
   const isAdmin = useIsAdmin();
   const canWrite = useCanWrite();
   const navigate = useNavigate();
-  const { filter: filterParam } = Route.useSearch();
+  const { filter: filterParam, new: newParam } = Route.useSearch();
   const [q, setQ] = React.useState("");
   const [filter, setFilter] = React.useState<StockFilter>(filterParam ?? "all");
   const [open, setOpen] = React.useState(false);
@@ -93,6 +90,14 @@ function ItemsPage() {
   React.useEffect(() => {
     if (filterParam) setFilter(filterParam);
   }, [filterParam]);
+  // ?new=1 (mobile "+" menu) opens the add-item form straight away.
+  React.useEffect(() => {
+    if (newParam && canWrite) {
+      setEditing(null);
+      setOpen(true);
+      navigate({ to: "/items", search: filterParam ? { filter: filterParam } : {}, replace: true });
+    }
+  }, [newParam, canWrite, filterParam, navigate]);
 
   const rows = db.items.map((i) => {
     const stock = stockOf(db, i.id);
@@ -183,33 +188,65 @@ function ItemsPage() {
 
   return (
     <>
-      <PeTitle
-        title="Items"
-        sub={`${db.items.length} ${db.items.length === 1 ? "product" : "products"} · stock value ${fmtINR(Math.round(stockValue))} at cost`}
-        actions={
-          canWrite ? (
-            <>
-              <PeBtn
-                variant="outline"
-                onClick={() => {
-                  setAdjustItem(null);
-                  setAdjustOpen(true);
-                }}
-              >
-                <SlidersHorizontal className="h-4 w-4" /> Adjust stock
-              </PeBtn>
-              <PeBtn
-                onClick={() => {
-                  setEditing(null);
-                  setOpen(true);
-                }}
-              >
-                <Plus className="h-4 w-4" strokeWidth={2.5} /> Add item
-              </PeBtn>
-            </>
-          ) : null
-        }
-      />
+      <MobileHeader>
+        <div className="flex items-center gap-2.5" style={{ padding: "6px 18px 14px" }}>
+          <div className="flex-1 min-w-0">
+            <div className="text-[20px] font-bold">Items</div>
+            <div className="text-[12px]" style={{ color: "rgba(255,255,255,.62)" }}>
+              {db.items.length} {db.items.length === 1 ? "product" : "products"} ·{" "}
+              {fmtINR(Math.round(stockValue))} stock value
+            </div>
+          </div>
+          {canWrite && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(null);
+                setOpen(true);
+              }}
+              className="inline-flex items-center text-[13.5px] font-bold"
+              style={{
+                height: 38,
+                padding: "0 14px",
+                borderRadius: 10,
+                background: "var(--pe-gold)",
+                color: "var(--pe-gold-ink)",
+              }}
+            >
+              + Add
+            </button>
+          )}
+        </div>
+      </MobileHeader>
+      <div className="hidden md:block">
+        <PeTitle
+          title="Items"
+          sub={`${db.items.length} ${db.items.length === 1 ? "product" : "products"} · stock value ${fmtINR(Math.round(stockValue))} at cost`}
+          actions={
+            canWrite ? (
+              <>
+                <PeBtn
+                  variant="outline"
+                  onClick={() => {
+                    setAdjustItem(null);
+                    setAdjustOpen(true);
+                  }}
+                >
+                  <SlidersHorizontal className="h-4 w-4" /> Adjust stock
+                </PeBtn>
+                <PeBtn
+                  onClick={() => {
+                    setEditing(null);
+                    setOpen(true);
+                  }}
+                >
+                  <Plus className="h-4 w-4" strokeWidth={2.5} /> Add item
+                </PeBtn>
+              </>
+            ) : null
+          }
+        />
+      </div>
 
       <PeCard pad={0} flat className="overflow-hidden">
         {/* Toolbar */}
@@ -339,8 +376,8 @@ function ItemsPage() {
           </PeTable>
         </div>
 
-        {/* Mobile list */}
-        <div className="md:hidden">
+        {/* Mobile list (design: 03 Items) */}
+        <div className="md:hidden grid gap-2.5" style={{ padding: 12, background: "var(--pe-bg)" }}>
           {list.map((r) => (
             <div
               key={r.id}
@@ -353,65 +390,82 @@ function ItemsPage() {
                   navigate({ to: "/items/$id", params: { id: r.id } });
                 }
               }}
-              className="pe-row-hover cursor-pointer"
-              style={{ padding: "12px 16px", borderTop: "1px solid var(--pe-line-3)" }}
+              className="bg-white cursor-pointer"
+              style={{ border: "1px solid var(--pe-line)", borderRadius: 14, padding: "13px 14px" }}
             >
-              <div className="flex items-center gap-3">
-                <PeAvatar name={r.name} tone={toneFor(r.name)} size={40} />
-                <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2.5">
+                <PeAvatar name={r.name} tone={toneFor(r.name)} size={42} />
+                <div className="flex-1 min-w-0">
                   <div className="text-[15px] font-semibold text-[color:var(--pe-ink)] truncate">
                     {r.name}
                   </div>
                   <div className="text-[12.5px] text-[color:var(--pe-ink-3)] truncate">
                     {r.company}
-                    {r.hsn ? ` · HSN ${r.hsn}` : ""}
-                    {r.gstRate != null ? ` · GST ${r.gstRate}%` : ""}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div
-                    className="text-[17px] font-bold tabular-nums leading-tight"
-                    style={{ color: stockColor(r.state) }}
-                  >
-                    {r.stock}{" "}
-                    <span className="text-[12px] font-semibold text-[color:var(--pe-ink-3)]">
-                      {r.unit || "pc"}
-                    </span>
+                  <div className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-[color:var(--pe-ink-3)]">
+                    In stock
                   </div>
                   <div
-                    className="text-[11.5px] font-semibold"
+                    className="text-[21px] font-bold tabular-nums leading-[1.1]"
                     style={{ color: stockColor(r.state) }}
                   >
-                    {stockBadge(r) || "In stock"}
+                    {r.stock}
                   </div>
                 </div>
                 {menuFor(r)}
               </div>
               <div
-                className="flex items-center gap-4 mt-2 text-[12.5px] text-[color:var(--pe-ink-3)]"
-                style={{ paddingLeft: 52 }}
+                className="grid items-center gap-2 mt-2.5"
+                style={{ gridTemplateColumns: "1fr 1fr auto" }}
               >
-                <span>
-                  Buy{" "}
-                  <b className="text-[color:var(--pe-ink-2)] tabular-nums">
+                <div style={{ background: "var(--pe-bg)", borderRadius: 10, padding: "7px 10px" }}>
+                  <div className="text-[11px] font-semibold text-[color:var(--pe-ink-3)]">
+                    Buy at
+                  </div>
+                  <div className="text-[14.5px] font-bold tabular-nums text-[color:var(--pe-ink)]">
                     {r.lp != null ? fmtINR(r.lp) : "—"}
-                  </b>
-                </span>
-                <span>
-                  Sell{" "}
-                  <b className="tabular-nums" style={{ color: "var(--pe-good)" }}>
-                    {r.ls != null ? fmtINR(r.ls) : "—"}
-                  </b>
-                </span>
-                {r.margin != null && (
-                  <span
-                    className="tabular-nums font-semibold"
-                    style={{ color: r.margin >= 0 ? "var(--pe-ink-2)" : "var(--pe-bad)" }}
+                  </div>
+                </div>
+                <div style={{ background: "var(--pe-bg)", borderRadius: 10, padding: "7px 10px" }}>
+                  <div className="text-[11px] font-semibold text-[color:var(--pe-ink-3)]">
+                    Sell at
+                  </div>
+                  <div
+                    className="text-[14.5px] font-bold tabular-nums"
+                    style={{ color: "var(--pe-good)" }}
                   >
-                    {r.margin >= 0 ? "+" : ""}
-                    {r.margin}%
-                  </span>
-                )}
+                    {r.ls != null ? fmtINR(r.ls) : "—"}
+                  </div>
+                </div>
+                <span
+                  className="text-[11.5px] font-bold"
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    background:
+                      r.state === "out"
+                        ? "var(--pe-bad-bg)"
+                        : r.state === "low"
+                          ? "var(--pe-warn-bg)"
+                          : "var(--pe-green-soft)",
+                    color:
+                      r.state === "out"
+                        ? "var(--pe-bad)"
+                        : r.state === "low"
+                          ? "var(--pe-warn)"
+                          : "var(--pe-green)",
+                  }}
+                >
+                  {r.state === "out"
+                    ? "Out"
+                    : r.state === "low"
+                      ? "Low"
+                      : r.margin != null
+                        ? `${r.margin >= 0 ? "+" : ""}${r.margin}%`
+                        : "OK"}
+                </span>
               </div>
             </div>
           ))}
@@ -489,6 +543,14 @@ function ItemDialog({
   const [hsn, setHsn] = React.useState("");
   const [gstSlab, setGstSlab] = React.useState("none"); // "none" | "0" | "5" | "12" | "18" | "28"
   const [price, setPrice] = React.useState("");
+  // Opening stock (new items only): recorded as a purchase from a dealer so
+  // stock, cost and the dealer's khata all start from the right place.
+  const [buyRate, setBuyRate] = React.useState("");
+  const [openQty, setOpenQty] = React.useState("");
+  const [dealerId, setDealerId] = React.useState<string | null>(null);
+  const [payStatus, setPayStatus] = React.useState<"full" | "partial" | "credit">("full");
+  const [paidNow, setPaidNow] = React.useState("");
+  const [payMode, setPayMode] = React.useState<PaymentMode>("cash");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -496,6 +558,12 @@ function ItemDialog({
     if (open) {
       setSaving(false);
       setError(null);
+      setBuyRate("");
+      setOpenQty("");
+      setDealerId(null);
+      setPayStatus("full");
+      setPaidNow("");
+      setPayMode("cash");
       setName(editing?.name ?? "");
       setCompany(editing?.company ?? "");
       setUnit(editing?.unit ?? "pc");
@@ -520,6 +588,20 @@ function ItemDialog({
       gstRate: gstSlab === "none" ? null : Number(gstSlab),
       price: price.trim() === "" ? null : Math.max(0, Number(price) || 0),
     };
+    const openQtyNum = Number(openQty) || 0;
+    const buyRateNum = Number(buyRate) || 0;
+    const hasOpening = !editing && openQtyNum > 0;
+    if (hasOpening && !dealerId) {
+      setError("Choose the dealer the opening stock was bought from (or clear the opening qty)");
+      return;
+    }
+    const openValue = openQtyNum * buyRateNum;
+    const openPaid =
+      payStatus === "full"
+        ? openValue
+        : payStatus === "credit"
+          ? 0
+          : Math.min(openValue, Number(paidNow) || 0);
     setSaving(true);
     setError(null);
     const res = editing
@@ -527,10 +609,43 @@ function ItemDialog({
           ...db,
           items: db.items.map((x) => (x.id === editing.id ? { ...x, ...fields } : x)),
         }))
-      : await set((db) => ({
-          ...db,
-          items: [...db.items, { id: newId(), ...fields, createdAt: nowStamp() } as Item],
-        }));
+      : await set((db) => {
+          const item = { id: newId(), ...fields, createdAt: nowStamp() } as Item;
+          if (!hasOpening) return { ...db, items: [...db.items, item] };
+          const purchase: Purchase = {
+            id: newId(),
+            date: today(),
+            itemId: item.id,
+            dealerId: dealerId!,
+            qty: openQtyNum,
+            rate: buyRateNum,
+            notes: "Opening stock",
+            addedBy: db.currentUser,
+            createdAt: nowStamp(),
+          };
+          const pay: Payment | null =
+            openPaid > 0 && khataReady()
+              ? {
+                  id: newId(),
+                  date: today(),
+                  partyType: "dealer",
+                  partyId: dealerId!,
+                  saleId: null,
+                  purchaseId: purchase.id,
+                  amount: openPaid,
+                  mode: payMode,
+                  notes: "Paid with purchase",
+                  addedBy: db.currentUser,
+                  createdAt: nowStamp(),
+                }
+              : null;
+          return {
+            ...db,
+            items: [...db.items, item],
+            purchases: [...db.purchases, purchase],
+            payments: pay ? [...db.payments, pay] : db.payments,
+          };
+        });
     setSaving(false);
     if (!res.ok) {
       setError(res.error);
@@ -542,7 +657,7 @@ function ItemDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[92dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{editing ? "Edit item" : "Add item"}</DialogTitle>
         </DialogHeader>
@@ -599,19 +714,30 @@ function ItemDialog({
             </div>
             <div className="grid gap-1.5">
               <Label>GST slab</Label>
-              <Select value={gstSlab} onValueChange={setGstSlab}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Not set</SelectItem>
-                  {GST_SLABS.map((r) => (
-                    <SelectItem key={r} value={String(r)}>
-                      {r}%
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="grid grid-cols-6 gap-1.5">
+                {[["none", "None"], ...GST_SLABS.map((r) => [String(r), `${r}%`])].map(
+                  ([v, label]) => {
+                    const on = gstSlab === v;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setGstSlab(v)}
+                        className="text-[12.5px] font-bold"
+                        style={{
+                          height: 40,
+                          borderRadius: 10,
+                          border: `1px solid ${on ? "var(--pe-green)" : "var(--pe-line)"}`,
+                          background: on ? "var(--pe-green)" : "#fff",
+                          color: on ? "#fff" : "var(--pe-ink-2)",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  },
+                )}
+              </div>
             </div>
           </div>
           <div className="grid gap-1.5">
@@ -626,13 +752,174 @@ function ItemDialog({
             </p>
           </div>
         </div>
+        {!editing &&
+          (() => {
+            const value = (Number(openQty) || 0) * (Number(buyRate) || 0);
+            const paidV =
+              payStatus === "full"
+                ? value
+                : payStatus === "credit"
+                  ? 0
+                  : Math.min(value, Number(paidNow) || 0);
+            const dueV = value - paidV;
+            const tile = (k: typeof payStatus, label: string, sub: string) => {
+              const on = payStatus === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setPayStatus(k)}
+                  className="text-center"
+                  style={{
+                    padding: "9px 6px",
+                    borderRadius: 10,
+                    border: `1.5px solid ${on ? "var(--pe-green)" : "var(--pe-line)"}`,
+                    background: on ? "var(--pe-green-soft)" : "#fff",
+                  }}
+                >
+                  <span
+                    className="block text-[13px] font-bold"
+                    style={{ color: on ? "var(--pe-green-dark)" : "var(--pe-ink)" }}
+                  >
+                    {label}
+                  </span>
+                  <span className="block text-[11px] text-[color:var(--pe-ink-3)] mt-px">
+                    {sub}
+                  </span>
+                </button>
+              );
+            };
+            return (
+              <div className="grid gap-3 mt-1">
+                <div className="text-[11.5px] font-bold uppercase tracking-[0.06em] text-[color:var(--pe-ink-3)]">
+                  Opening stock &amp; payment (optional)
+                </div>
+                <div
+                  className="grid gap-3 bg-white"
+                  style={{ border: "1px solid var(--pe-line)", borderRadius: 14, padding: 14 }}
+                >
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="grid gap-1.5">
+                      <Label>Buy price (₹)</Label>
+                      <NumberInput
+                        value={buyRate}
+                        onValueChange={setBuyRate}
+                        min={0}
+                        max={10000000}
+                        className="h-11 rounded-xl"
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label>Opening qty</Label>
+                      <NumberInput
+                        value={openQty}
+                        onValueChange={setOpenQty}
+                        min={0}
+                        max={1000000}
+                        className="h-11 rounded-xl"
+                      />
+                    </div>
+                  </div>
+                  {(Number(openQty) || 0) > 0 && (
+                    <>
+                      <div className="grid gap-1.5">
+                        <Label>Bought from (dealer)</Label>
+                        <EntityPicker
+                          kind="dealer"
+                          value={dealerId}
+                          onChange={setDealerId}
+                          placeholder="Choose dealer"
+                        />
+                      </div>
+                      <div className="flex justify-between text-[13.5px] text-[color:var(--pe-ink-2)]">
+                        <span>Stock value</span>
+                        <span className="font-bold text-[color:var(--pe-ink)] tabular-nums">
+                          {fmtINR(value)}
+                        </span>
+                      </div>
+                      {khataReady() && (
+                        <>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {tile("full", "Paid", "Full amount")}
+                            {tile("partial", "Partial", "Some paid")}
+                            {tile("credit", "Unpaid", "Pay later")}
+                          </div>
+                          {payStatus === "partial" && (
+                            <div className="grid gap-1.5">
+                              <Label>Amount paid now (₹)</Label>
+                              <NumberInput
+                                value={paidNow}
+                                onValueChange={setPaidNow}
+                                min={0}
+                                max={10000000}
+                                className="h-11 rounded-xl"
+                              />
+                            </div>
+                          )}
+                          {payStatus !== "credit" && (
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {(["cash", "upi", "bank", "cheque"] as PaymentMode[]).map((m) => {
+                                const on = payMode === m;
+                                return (
+                                  <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => setPayMode(m)}
+                                    className="text-[12.5px] font-bold uppercase"
+                                    style={{
+                                      height: 36,
+                                      borderRadius: 9,
+                                      border: `1px solid ${on ? "var(--pe-green)" : "var(--pe-line)"}`,
+                                      background: on ? "var(--pe-green)" : "#fff",
+                                      color: on ? "#fff" : "var(--pe-ink-2)",
+                                    }}
+                                  >
+                                    {m}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                          <div
+                            className="grid gap-1.5 text-[13.5px]"
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: 10,
+                              background: "var(--pe-bg-2)",
+                            }}
+                          >
+                            <div className="flex justify-between text-[color:var(--pe-ink-2)]">
+                              <span>Paid to dealer</span>
+                              <span
+                                className="font-bold tabular-nums"
+                                style={{ color: "var(--pe-good)" }}
+                              >
+                                {fmtINR(paidV)}
+                              </span>
+                            </div>
+                            <div
+                              className="flex justify-between font-bold"
+                              style={{ color: dueV > 0 ? "var(--pe-warn)" : "var(--pe-good)" }}
+                            >
+                              <span>{dueV > 0 ? "Added to dealer khata" : "Nothing due"}</span>
+                              <span className="tabular-nums">{fmtINR(dueV)}</span>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         <PeFormError message={error} />
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
           <Button onClick={submit} disabled={saving}>
-            {saving ? "Saving…" : "Save"}
+            {saving ? "Saving…" : editing ? "Save" : "Save item"}
           </Button>
         </DialogFooter>
       </DialogContent>

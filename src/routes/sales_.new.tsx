@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { NumberInput } from "@/components/ui/number-input";
 import { AddDialog } from "@/components/EntityPicker";
 import { ShareSheet, useWaConnected } from "@/components/BillShare";
+import { MobileHeader } from "@/components/AppLayout";
 import {
   useDB,
   today,
@@ -54,6 +55,7 @@ import {
   ChevronUp,
   MessageCircle,
   Download,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -253,6 +255,8 @@ function NewBillPage() {
   const [date, setDate] = React.useState(today());
   const [lines, setLines] = React.useState<Line[]>([]);
   const [paid, setPaid] = React.useState("");
+  // Paid / Partial / Unpaid tiles (mobile design) drive how much is received now.
+  const [payStatus, setPayStatus] = React.useState<"full" | "partial" | "credit">("full");
   const [mode, setMode] = React.useState<PaymentMode>("cash");
   const [gstEnabled, setGstEnabled] = React.useState(false);
   const [gstRate, setGstRate] = React.useState("18");
@@ -398,7 +402,13 @@ function NewBillPage() {
   const inter = isInterState(db.shop.gstin, customer?.gstin);
   const needsFallback =
     gstEnabled && (lines.some((l) => slabOf(l) == null) || (chargeExtra && extraNum > 0));
-  const paidNum = editing ? (editing.amountPaid ?? 0) : Math.min(Number(paid) || 0, total);
+  const paidNum = editing
+    ? (editing.amountPaid ?? 0)
+    : payStatus === "full"
+      ? total
+      : payStatus === "credit"
+        ? 0
+        : Math.min(Number(paid) || 0, total);
   const due = Math.max(0, total - paidNum);
 
   const submit = async () => {
@@ -501,6 +511,7 @@ function NewBillPage() {
     setError(null);
     setDate(today());
     setMore(false);
+    setPayStatus("full");
     if (clearBanner) {
       setSavedId(null);
       setSavedSnapshot(null);
@@ -558,32 +569,100 @@ function NewBillPage() {
     );
   }
 
+  const back = () => navigate({ to: "/sales" });
+  const statusPill =
+    due <= 0 && total > 0
+      ? { label: "Paid", bg: "var(--pe-good-bg)", fg: "var(--pe-good)" }
+      : paidNum > 0
+        ? { label: "Partial", bg: "var(--pe-warn-bg)", fg: "var(--pe-warn)" }
+        : { label: "Unpaid", bg: "var(--pe-bad-bg)", fg: "var(--pe-bad)" };
+  const tile = (k: typeof payStatus, label: string, sub: string) => {
+    const on = payStatus === k;
+    return (
+      <button
+        key={k}
+        type="button"
+        onClick={() => {
+          setPayStatus(k);
+          setSavedId(null);
+        }}
+        className="text-center"
+        style={{
+          padding: "9px 4px",
+          borderRadius: 10,
+          border: `1.5px solid ${on ? "var(--pe-green)" : "var(--pe-line)"}`,
+          background: on ? "var(--pe-green-soft)" : "#fff",
+        }}
+      >
+        <span
+          className="block text-[13px] font-bold"
+          style={{ color: on ? "var(--pe-green-dark)" : "var(--pe-ink)" }}
+        >
+          {label}
+        </span>
+        <span className="block text-[11px] text-[color:var(--pe-ink-3)] mt-px">{sub}</span>
+      </button>
+    );
+  };
+
   return (
     <>
-      <PeTitle
-        eyebrow={editing ? `Sales · Bill ${billNoLabel(editing)}` : "Sales · New bill"}
-        title={editing ? "Edit bill" : "New bill"}
-        actions={
-          <label
-            className="inline-flex items-center gap-2 text-[13.5px] font-semibold text-[color:var(--pe-ink-2)] bg-white cursor-pointer"
-            style={{
-              height: 38,
-              padding: "0 14px",
-              borderRadius: 10,
-              border: "1px solid var(--pe-line)",
-            }}
+      <MobileHeader hideNav>
+        <div className="flex items-center gap-2.5" style={{ padding: "6px 16px 14px" }}>
+          <button
+            type="button"
+            aria-label="Back"
+            onClick={back}
+            className="inline-flex items-center justify-center"
+            style={{ width: 40, height: 40 }}
           >
-            <span>Date ·</span>
+            <ArrowLeft className="h-[22px] w-[22px]" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <div className="text-[17px] font-bold">{editing ? "Edit bill" : "New bill"}</div>
+            <div className="text-[11.5px]" style={{ color: "rgba(255,255,255,.62)" }}>
+              {editing ? `${billNoLabel(editing)} · ` : ""}
+              {fmtDate(date)}
+            </div>
+          </div>
+          <label className="text-[12.5px] font-semibold" style={{ color: "rgba(255,255,255,.8)" }}>
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
               aria-label="Bill date"
-              className="border-0 bg-transparent outline-none text-[13.5px] font-semibold text-[color:var(--pe-ink)] cursor-pointer"
+              className="bg-transparent border-0 outline-none text-white"
+              style={{ width: 118, colorScheme: "dark" }}
             />
           </label>
-        }
-      />
+        </div>
+      </MobileHeader>
+      <div className="hidden md:block">
+        <PeTitle
+          eyebrow={editing ? `Sales · Bill ${billNoLabel(editing)}` : "Sales · New bill"}
+          title={editing ? "Edit bill" : "New bill"}
+          actions={
+            <label
+              className="inline-flex items-center gap-2 text-[13.5px] font-semibold text-[color:var(--pe-ink-2)] bg-white cursor-pointer"
+              style={{
+                height: 38,
+                padding: "0 14px",
+                borderRadius: 10,
+                border: "1px solid var(--pe-line)",
+              }}
+            >
+              <span>Date ·</span>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                aria-label="Bill date"
+                className="border-0 bg-transparent outline-none text-[13.5px] font-semibold text-[color:var(--pe-ink)] cursor-pointer"
+              />
+            </label>
+          }
+        />
+      </div>
 
       {savedSale && savedSnapshot && (
         <div
@@ -655,7 +734,7 @@ function NewBillPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-4 items-start">
+      <div className="flex flex-wrap gap-4 items-start pb-24 md:pb-0">
         {/* Left column: customer + items */}
         <div className="flex flex-col gap-3.5 min-w-0" style={{ flex: "999 1 480px" }}>
           <PeCard flat style={{ padding: "18px 20px" }}>
@@ -797,109 +876,216 @@ function NewBillPage() {
                 ))}
               </div>
             </div>
-            <PeTable minWidth={560}>
-              <PeTHead template={LINE_COLS} top>
-                <span>Item</span>
-                <span className="text-center">Qty</span>
-                <span className="text-right">Rate</span>
-                <span className="text-right">GST</span>
-                <span className="text-right">Amount</span>
-                <span />
-              </PeTHead>
+            {/* Mobile: line cards (design: 02 New bill) */}
+            <div className="md:hidden grid gap-2.5" style={{ padding: "0 12px 12px" }}>
               {lines.map((l, i) => {
                 const it = findItem(db, l.itemId);
                 const c = checks[i];
                 const slab = slabOf(l);
                 return (
                   <div
-                    key={l.key}
-                    className="grid gap-2.5 items-center"
+                    key={`m-${l.key}`}
+                    className="bg-white"
                     style={{
-                      gridTemplateColumns: LINE_COLS,
-                      padding: "12px 20px",
-                      borderTop: "1px solid var(--pe-line-3)",
+                      border: "1px solid var(--pe-line)",
+                      borderRadius: 14,
+                      padding: "12px 14px",
                     }}
                   >
-                    <div className="min-w-0">
-                      <div className="text-[14.5px] font-semibold text-[color:var(--pe-ink)] truncate">
-                        {it?.name ?? "—"}
+                    <div className="flex justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-[14.5px] font-semibold text-[color:var(--pe-ink)] truncate">
+                          {it?.name ?? "—"}
+                        </div>
+                        <div className="text-[12px] text-[color:var(--pe-ink-3)] flex items-center gap-1">
+                          <span>₹</span>
+                          <input
+                            value={l.rate}
+                            inputMode="decimal"
+                            aria-label="Rate"
+                            onChange={(e) => {
+                              const v = e.target.value.replace(/[^0-9.]/g, "");
+                              updateLine(l.key, { rate: v === "" ? 0 : Number(v) });
+                            }}
+                            className="border-0 border-b border-dashed bg-transparent outline-none tabular-nums text-[12.5px] font-semibold text-[color:var(--pe-ink-2)]"
+                            style={{ width: 64, borderColor: "var(--pe-line)" }}
+                          />
+                          <span>· GST {gstEnabled ? `${slab ?? rateNum}%` : "—"}</span>
+                        </div>
                       </div>
-                      <div
-                        className="text-[12px] truncate"
+                      <div className="flex items-start gap-1.5">
+                        <div className="text-[15px] font-bold tabular-nums">
+                          {fmtINR(l.qty * l.rate)}
+                        </div>
+                        <button
+                          type="button"
+                          aria-label="Remove"
+                          onClick={() => removeLine(l.key)}
+                          className="pe-x-hover inline-flex items-center justify-center rounded-[7px] text-[color:var(--pe-ink-3)]"
+                          style={{ width: 24, height: 24 }}
+                        >
+                          <X className="h-[14px] w-[14px]" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-2.5">
+                      <span
+                        className="text-[12px]"
                         style={{ color: c.short > 0 ? "var(--pe-bad)" : "var(--pe-ink-3)" }}
                       >
-                        {it?.company}
-                        {it?.hsn ? ` · HSN ${it.hsn}` : ""} ·{" "}
                         {c.short > 0
-                          ? `only ${c.available} in stock`
+                          ? `Only ${c.available} in stock`
                           : `${c.available - l.qty} left after sale`}
+                      </span>
+                      <div
+                        className="flex items-center overflow-hidden"
+                        style={{ height: 40, borderRadius: 10, border: "1px solid var(--pe-line)" }}
+                      >
+                        <button
+                          type="button"
+                          aria-label="Less"
+                          onClick={() =>
+                            l.qty <= 1 ? removeLine(l.key) : updateLine(l.key, { qty: l.qty - 1 })
+                          }
+                          className="h-full font-bold text-[18px] text-[color:var(--pe-ink-2)]"
+                          style={{ width: 44, background: "var(--pe-bg-2)" }}
+                        >
+                          −
+                        </button>
+                        <input
+                          value={l.qty}
+                          inputMode="decimal"
+                          aria-label="Quantity"
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/[^0-9.]/g, "");
+                            updateLine(l.key, { qty: v === "" ? 0 : Number(v) });
+                          }}
+                          onBlur={() => {
+                            if (!l.qty) updateLine(l.key, { qty: 1 });
+                          }}
+                          className="text-center border-0 outline-none text-[15px] font-bold bg-transparent"
+                          style={{ width: 40 }}
+                        />
+                        <button
+                          type="button"
+                          aria-label="More"
+                          onClick={() => updateLine(l.key, { qty: l.qty + 1 })}
+                          className="h-full font-bold text-[18px] text-[color:var(--pe-ink-2)]"
+                          style={{ width: 44, background: "var(--pe-bg-2)" }}
+                        >
+                          +
+                        </button>
                       </div>
                     </div>
-                    <div
-                      className="flex items-center overflow-hidden"
-                      style={{ height: 34, borderRadius: 9, border: "1px solid var(--pe-line)" }}
-                    >
-                      <button
-                        type="button"
-                        aria-label="Less"
-                        onClick={() =>
-                          l.qty <= 1 ? removeLine(l.key) : updateLine(l.key, { qty: l.qty - 1 })
-                        }
-                        className="h-full font-bold text-[16px] text-[color:var(--pe-ink-2)]"
-                        style={{ width: 34, background: "var(--pe-bg-2)" }}
-                      >
-                        −
-                      </button>
-                      <input
-                        value={l.qty}
-                        inputMode="decimal"
-                        onChange={(e) => {
-                          const v = e.target.value.replace(/[^0-9.]/g, "");
-                          updateLine(l.key, { qty: v === "" ? 0 : Number(v) });
-                        }}
-                        onBlur={() => {
-                          if (!l.qty) updateLine(l.key, { qty: 1 });
-                        }}
-                        className="flex-1 min-w-0 w-full text-center border-0 outline-none text-[14px] font-bold bg-transparent"
-                        aria-label="Quantity"
-                      />
-                      <button
-                        type="button"
-                        aria-label="More"
-                        onClick={() => updateLine(l.key, { qty: l.qty + 1 })}
-                        className="h-full font-bold text-[16px] text-[color:var(--pe-ink-2)]"
-                        style={{ width: 34, background: "var(--pe-bg-2)" }}
-                      >
-                        +
-                      </button>
-                    </div>
-                    <NumberInput
-                      value={String(l.rate)}
-                      onValueChange={(v) => updateLine(l.key, { rate: v === "" ? 0 : Number(v) })}
-                      min={0}
-                      max={10000000}
-                      aria-label="Rate"
-                      className="h-[34px] rounded-lg text-right tabular-nums text-[14px] px-2 bg-white"
-                    />
-                    <span className="text-right text-[13px] text-[color:var(--pe-ink-3)] tabular-nums">
-                      {gstEnabled ? `${slab ?? rateNum}%` : "—"}
-                    </span>
-                    <span className="text-right text-[14.5px] font-bold tabular-nums">
-                      {fmtINR(l.qty * l.rate)}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="Remove"
-                      onClick={() => removeLine(l.key)}
-                      className="pe-x-hover inline-flex items-center justify-center rounded-[7px] text-[color:var(--pe-ink-3)]"
-                      style={{ width: 28, height: 28 }}
-                    >
-                      <X className="h-[15px] w-[15px]" />
-                    </button>
                   </div>
                 );
               })}
-            </PeTable>
+            </div>
+            <div className="hidden md:block">
+              <PeTable minWidth={560}>
+                <PeTHead template={LINE_COLS} top>
+                  <span>Item</span>
+                  <span className="text-center">Qty</span>
+                  <span className="text-right">Rate</span>
+                  <span className="text-right">GST</span>
+                  <span className="text-right">Amount</span>
+                  <span />
+                </PeTHead>
+                {lines.map((l, i) => {
+                  const it = findItem(db, l.itemId);
+                  const c = checks[i];
+                  const slab = slabOf(l);
+                  return (
+                    <div
+                      key={l.key}
+                      className="grid gap-2.5 items-center"
+                      style={{
+                        gridTemplateColumns: LINE_COLS,
+                        padding: "12px 20px",
+                        borderTop: "1px solid var(--pe-line-3)",
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[14.5px] font-semibold text-[color:var(--pe-ink)] truncate">
+                          {it?.name ?? "—"}
+                        </div>
+                        <div
+                          className="text-[12px] truncate"
+                          style={{ color: c.short > 0 ? "var(--pe-bad)" : "var(--pe-ink-3)" }}
+                        >
+                          {it?.company}
+                          {it?.hsn ? ` · HSN ${it.hsn}` : ""} ·{" "}
+                          {c.short > 0
+                            ? `only ${c.available} in stock`
+                            : `${c.available - l.qty} left after sale`}
+                        </div>
+                      </div>
+                      <div
+                        className="flex items-center overflow-hidden"
+                        style={{ height: 34, borderRadius: 9, border: "1px solid var(--pe-line)" }}
+                      >
+                        <button
+                          type="button"
+                          aria-label="Less"
+                          onClick={() =>
+                            l.qty <= 1 ? removeLine(l.key) : updateLine(l.key, { qty: l.qty - 1 })
+                          }
+                          className="h-full font-bold text-[16px] text-[color:var(--pe-ink-2)]"
+                          style={{ width: 34, background: "var(--pe-bg-2)" }}
+                        >
+                          −
+                        </button>
+                        <input
+                          value={l.qty}
+                          inputMode="decimal"
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/[^0-9.]/g, "");
+                            updateLine(l.key, { qty: v === "" ? 0 : Number(v) });
+                          }}
+                          onBlur={() => {
+                            if (!l.qty) updateLine(l.key, { qty: 1 });
+                          }}
+                          className="flex-1 min-w-0 w-full text-center border-0 outline-none text-[14px] font-bold bg-transparent"
+                          aria-label="Quantity"
+                        />
+                        <button
+                          type="button"
+                          aria-label="More"
+                          onClick={() => updateLine(l.key, { qty: l.qty + 1 })}
+                          className="h-full font-bold text-[16px] text-[color:var(--pe-ink-2)]"
+                          style={{ width: 34, background: "var(--pe-bg-2)" }}
+                        >
+                          +
+                        </button>
+                      </div>
+                      <NumberInput
+                        value={String(l.rate)}
+                        onValueChange={(v) => updateLine(l.key, { rate: v === "" ? 0 : Number(v) })}
+                        min={0}
+                        max={10000000}
+                        aria-label="Rate"
+                        className="h-[34px] rounded-lg text-right tabular-nums text-[14px] px-2 bg-white"
+                      />
+                      <span className="text-right text-[13px] text-[color:var(--pe-ink-3)] tabular-nums">
+                        {gstEnabled ? `${slab ?? rateNum}%` : "—"}
+                      </span>
+                      <span className="text-right text-[14.5px] font-bold tabular-nums">
+                        {fmtINR(l.qty * l.rate)}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="Remove"
+                        onClick={() => removeLine(l.key)}
+                        className="pe-x-hover inline-flex items-center justify-center rounded-[7px] text-[color:var(--pe-ink-3)]"
+                        style={{ width: 28, height: 28 }}
+                      >
+                        <X className="h-[15px] w-[15px]" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </PeTable>
+            </div>
             {lines.length === 0 && (
               <PeEmpty pad={28}>No items yet. Search above or tap a suggestion to add one.</PeEmpty>
             )}
@@ -1125,35 +1311,50 @@ function NewBillPage() {
               </div>
             ) : (
               <>
-                <PeModePicker options={MODES} value={mode} onChange={setMode} filled />
-                <div>
-                  <div className="text-[12.5px] font-semibold text-[color:var(--pe-ink-2)] mb-1.5">
-                    Amount received now
-                  </div>
-                  <PeMoneyInput
-                    value={paid}
-                    onChange={(v) => {
-                      setPaid(v);
-                      setSavedId(null);
+                <div className="grid grid-cols-3 gap-1.5">
+                  {tile("full", "Paid", "Full amount")}
+                  {tile("partial", "Partial", "Some now")}
+                  {tile("credit", "Unpaid", "On credit")}
+                </div>
+                {custDue < 0 && (
+                  <div
+                    className="flex items-center gap-2.5 text-[12.5px]"
+                    style={{
+                      padding: "9px 12px",
+                      borderRadius: 10,
+                      background: "var(--pe-good-bg)",
+                      color: "#14532D",
                     }}
-                    size="lg"
-                  />
-                  <div className="flex gap-1.5 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => setPaid(String(total))}
-                      style={{ ...chip(false), padding: "5px 10px", borderRadius: 7, fontSize: 12 }}
-                    >
-                      Full amount
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPaid("")}
-                      style={{ ...chip(false), padding: "5px 10px", borderRadius: 7, fontSize: 12 }}
-                    >
-                      On credit
-                    </button>
+                  >
+                    <span className="flex-1">
+                      <b>Advance {fmtINR(-custDue)}</b> held — adjusts automatically in khata.
+                    </span>
                   </div>
+                )}
+                {payStatus === "partial" && (
+                  <div>
+                    <div className="text-[12.5px] font-semibold text-[color:var(--pe-ink-2)] mb-1.5">
+                      Amount received now
+                    </div>
+                    <PeMoneyInput
+                      value={paid}
+                      onChange={(v) => {
+                        setPaid(v);
+                        setSavedId(null);
+                      }}
+                      size="lg"
+                      autoFocus
+                    />
+                  </div>
+                )}
+                {payStatus !== "credit" && (
+                  <PeModePicker options={MODES} value={mode} onChange={setMode} filled />
+                )}
+                <div className="flex justify-between text-[13.5px] text-[color:var(--pe-ink-2)]">
+                  <span>Received now</span>
+                  <span className="font-bold tabular-nums" style={{ color: "var(--pe-good)" }}>
+                    {fmtINR(paidNum)}
+                  </span>
                 </div>
               </>
             )}
@@ -1181,6 +1382,7 @@ function NewBillPage() {
             <PeFormError message={error} />
             <PeBtn
               size="lg"
+              className="hidden md:inline-flex"
               onClick={submit}
               disabled={saving}
               style={{ borderRadius: 8, boxShadow: "0 6px 18px rgba(14,107,87,.22)" }}
@@ -1201,6 +1403,48 @@ function NewBillPage() {
             )}
           </div>
         </PeCard>
+      </div>
+
+      {/* Mobile: fixed save bar (design: 02 New bill) */}
+      <div
+        className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white flex items-center gap-3"
+        style={{
+          borderTop: "1px solid var(--pe-line)",
+          padding: "12px 16px calc(12px + env(safe-area-inset-bottom))",
+        }}
+      >
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[12px] font-semibold text-[color:var(--pe-ink-3)]">
+              Bill total
+            </span>
+            <span
+              className="text-[10.5px] font-bold"
+              style={{
+                padding: "2px 7px",
+                borderRadius: 999,
+                background: statusPill.bg,
+                color: statusPill.fg,
+              }}
+            >
+              {editing ? "Editing" : statusPill.label}
+            </span>
+          </div>
+          <div
+            className="text-[22px] font-bold tracking-[-0.02em] tabular-nums"
+            style={{ color: "var(--pe-green)" }}
+          >
+            {fmtINR(total)}
+          </div>
+        </div>
+        <PeBtn
+          size="lg"
+          onClick={submit}
+          disabled={saving}
+          style={{ borderRadius: 12, padding: "0 22px" }}
+        >
+          {saving ? "Saving…" : editing ? "Update bill" : "Save bill"}
+        </PeBtn>
       </div>
 
       <ShareSheet sale={shareTarget} onClose={() => setShareTarget(null)} />

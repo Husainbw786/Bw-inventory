@@ -17,6 +17,7 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as MembersRouteImport } from './routes/members'
 import { Route as ItemsRouteImport } from './routes/items'
 import { Route as ExpensesRouteImport } from './routes/expenses'
+import { Route as EntryRouteImport } from './routes/entry'
 import { Route as DirectoryRouteImport } from './routes/directory'
 import { Route as BillsRouteImport } from './routes/bills'
 import { Route as AuthRouteImport } from './routes/auth'
@@ -66,6 +67,11 @@ const ItemsRoute = ItemsRouteImport.update({
 const ExpensesRoute = ExpensesRouteImport.update({
   id: '/expenses',
   path: '/expenses',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EntryRoute = EntryRouteImport.update({
+  id: '/entry',
+  path: '/entry',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DirectoryRoute = DirectoryRouteImport.update({
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/bills': typeof BillsRouteWithChildren
   '/directory': typeof DirectoryRoute
+  '/entry': typeof EntryRoute
   '/expenses': typeof ExpensesRoute
   '/items': typeof ItemsRouteWithChildren
   '/members': typeof MembersRoute
@@ -144,6 +151,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/bills': typeof BillsRouteWithChildren
   '/directory': typeof DirectoryRoute
+  '/entry': typeof EntryRoute
   '/expenses': typeof ExpensesRoute
   '/items': typeof ItemsRouteWithChildren
   '/members': typeof MembersRoute
@@ -165,6 +173,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/bills': typeof BillsRouteWithChildren
   '/directory': typeof DirectoryRoute
+  '/entry': typeof EntryRoute
   '/expenses': typeof ExpensesRoute
   '/items': typeof ItemsRouteWithChildren
   '/members': typeof MembersRoute
@@ -187,6 +196,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/bills'
     | '/directory'
+    | '/entry'
     | '/expenses'
     | '/items'
     | '/members'
@@ -207,6 +217,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/bills'
     | '/directory'
+    | '/entry'
     | '/expenses'
     | '/items'
     | '/members'
@@ -227,6 +238,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/bills'
     | '/directory'
+    | '/entry'
     | '/expenses'
     | '/items'
     | '/members'
@@ -248,6 +260,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   BillsRoute: typeof BillsRouteWithChildren
   DirectoryRoute: typeof DirectoryRoute
+  EntryRoute: typeof EntryRoute
   ExpensesRoute: typeof ExpensesRoute
   ItemsRoute: typeof ItemsRouteWithChildren
   MembersRoute: typeof MembersRoute
@@ -318,6 +331,13 @@ declare module '@tanstack/react-router' {
       path: '/expenses'
       fullPath: '/expenses'
       preLoaderRoute: typeof ExpensesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/entry': {
+      id: '/entry'
+      path: '/entry'
+      fullPath: '/entry'
+      preLoaderRoute: typeof EntryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/directory': {
@@ -418,6 +438,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   BillsRoute: BillsRouteWithChildren,
   DirectoryRoute: DirectoryRoute,
+  EntryRoute: EntryRoute,
   ExpensesRoute: ExpensesRoute,
   ItemsRoute: ItemsRouteWithChildren,
   MembersRoute: MembersRoute,

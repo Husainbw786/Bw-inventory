@@ -1,0 +1,61 @@
+{
+  "packageId": "com.bwinventory.app",
+  "host": "bw-inventory.bw-inventory.workers.dev",
+  "name": "BW Inventory",
+  "launcherName": "BW Inventory",
+  "display": "standalone",
+  "themeColor": "#0B3D33",
+  "themeColorDark": "#0B3D33",
+  "navigationColor": "#0B3D33",
+  "navigationColorDark": "#0B3D33",
+  "navigationDividerColor": "#0B3D33",
+  "navigationDividerColorDark": "#0B3D33",
+  "backgroundColor": "#F6F4EC",
+  "enableNotifications": false,
+  "startUrl": "/?source=twa",
+  "iconUrl": "https://bw-inventory.bw-inventory.workers.dev/icons/icon-512.png",
+  "maskableIconUrl": "https://bw-inventory.bw-inventory.workers.dev/icons/icon-512-maskable.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./upload.keystore",
+    "alias": "upload"
+  },
+  "appVersion": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [
+    {
+      "name": "New bill",
+      "shortName": "New bill",
+      "url": "https://bw-inventory.bw-inventory.workers.dev/sales/new?source=shortcut",
+      "chosenIconUrl": "https://bw-inventory.bw-inventory.workers.dev/icons/icon-192.png"
+    },
+    {
+      "name": "Quick entry",
+      "shortName": "Entry",
+      "url": "https://bw-inventory.bw-inventory.workers.dev/entry?type=in&source=shortcut",
+      "chosenIconUrl": "https://bw-inventory.bw-inventory.workers.dev/icons/icon-192.png"
+    },
+    {
+      "name": "Items",
+      "shortName": "Items",
+      "url": "https://bw-inventory.bw-inventory.workers.dev/items?source=shortcut",
+      "chosenIconUrl": "https://bw-inventory.bw-inventory.workers.dev/icons/icon-192.png"
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://bw-inventory.bw-inventory.workers.dev/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://bw-inventory.bw-inventory.workers.dev/",
+  "minSdkVersion": 21,
+  "orientation": "default",
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": []
+}

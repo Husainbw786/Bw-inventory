@@ -10,12 +10,13 @@ import { MoreVertical, Check } from "lucide-react";
 export type ThemeMode = "light" | "dark" | "system";
 export type Accent = "Emerald" | "Teal" | "Indigo" | "Plum";
 
-// [green, greenDark, greenSoft, greenSoft2] per mode. `swatch` is the menu dot.
+// [green, greenDark, greenSoft, greenSoft2, header] per mode. `swatch` is the
+// menu dot; `header` is the deep shade behind the top bar.
 export const ACCENTS: Record<Accent, { light: string[]; dark: string[]; swatch: string }> = {
-  Emerald: { light: ["#0E6B57", "#0A4E40", "#E6F2EE", "#D2E8E1"], dark: ["#2EBE9A", "#1F9E80", "#15302A", "#1C3D35"], swatch: "#0E6B57" },
-  Teal: { light: ["#0E7490", "#0A5468", "#E3F1F5", "#CDE6ED"], dark: ["#2BBFD6", "#1E93A8", "#122E34", "#173B43"], swatch: "#0E7490" },
-  Indigo: { light: ["#4338CA", "#312E81", "#EAE9FB", "#DAD8F6"], dark: ["#8B85F0", "#6B63E0", "#1E1F3A", "#272949"], swatch: "#4338CA" },
-  Plum: { light: ["#9333EA", "#6B21A8", "#F3E9FC", "#EAD9F8"], dark: ["#C384F5", "#A35FE0", "#2A1E3A", "#371F49"], swatch: "#9333EA" },
+  Emerald: { light: ["#0E6B57", "#0A4E40", "#E6F2EE", "#D2E8E1", "#0B3D33"], dark: ["#2EBE9A", "#1F9E80", "#15302A", "#1C3D35", "#0B3D33"], swatch: "#0E6B57" },
+  Teal: { light: ["#0E7490", "#0A5468", "#E3F1F5", "#CDE6ED", "#0A3B45"], dark: ["#2BBFD6", "#1E93A8", "#122E34", "#173B43", "#0A3B45"], swatch: "#0E7490" },
+  Indigo: { light: ["#4338CA", "#312E81", "#EAE9FB", "#DAD8F6", "#1E1B4B"], dark: ["#8B85F0", "#6B63E0", "#1E1F3A", "#272949", "#1E1B4B"], swatch: "#4338CA" },
+  Plum: { light: ["#9333EA", "#6B21A8", "#F3E9FC", "#EAD9F8", "#3B0764"], dark: ["#C384F5", "#A35FE0", "#2A1E3A", "#371F49", "#3B0764"], swatch: "#9333EA" },
 };
 
 export const MODE_KEY = "bw-theme-mode";
@@ -36,6 +37,7 @@ function applyTheme(mode: ThemeMode, accent: Accent) {
   s.setProperty("--pe-green-dark", p[1]);
   s.setProperty("--pe-green-soft", p[2]);
   s.setProperty("--pe-green-soft-2", p[3]);
+  s.setProperty("--pe-header", p[4]);
   s.setProperty("--primary", p[0]);
   s.setProperty("--ring", p[0]);
   s.setProperty("--accent", p[2]);
@@ -49,9 +51,9 @@ function applyTheme(mode: ThemeMode, accent: Accent) {
 export const THEME_INIT_SCRIPT = `(function(){try{
 var el=document.documentElement; el.classList.remove('dark');
 var a=localStorage.getItem('${ACCENT_KEY}')||'Emerald';
-var A={Emerald:{l:['#0E6B57','#0A4E40','#E6F2EE','#D2E8E1']},Teal:{l:['#0E7490','#0A5468','#E3F1F5','#CDE6ED']},Indigo:{l:['#4338CA','#312E81','#EAE9FB','#DAD8F6']},Plum:{l:['#9333EA','#6B21A8','#F3E9FC','#EAD9F8']}};
+var A={Emerald:{l:['#0E6B57','#0A4E40','#E6F2EE','#D2E8E1','#0B3D33']},Teal:{l:['#0E7490','#0A5468','#E3F1F5','#CDE6ED','#0A3B45']},Indigo:{l:['#4338CA','#312E81','#EAE9FB','#DAD8F6','#1E1B4B']},Plum:{l:['#9333EA','#6B21A8','#F3E9FC','#EAD9F8','#3B0764']}};
 var p=(A[a]||A.Emerald).l;var s=el.style;
-s.setProperty('--pe-green',p[0]);s.setProperty('--pe-green-dark',p[1]);s.setProperty('--pe-green-soft',p[2]);s.setProperty('--pe-green-soft-2',p[3]);
+s.setProperty('--pe-green',p[0]);s.setProperty('--pe-green-dark',p[1]);s.setProperty('--pe-green-soft',p[2]);s.setProperty('--pe-green-soft-2',p[3]);s.setProperty('--pe-header',p[4]);
 s.setProperty('--primary',p[0]);s.setProperty('--ring',p[0]);s.setProperty('--accent',p[2]);s.setProperty('--accent-foreground',p[1]);s.setProperty('--sidebar-primary',p[0]);s.setProperty('--sidebar-ring',p[0]);
 }catch(e){}})();`;
 

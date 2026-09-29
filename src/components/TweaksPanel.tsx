@@ -7,13 +7,13 @@ type Accent = "Emerald" | "Teal" | "Indigo" | "Plum";
 type Corners = "Rounded" | "Soft" | "Sharp";
 type Tweaks = { accent: Accent; corners: Corners; bigText: boolean };
 
-const ACCENTS: Record<Accent, { green: string; dark: string; soft: string; soft2: string }> = {
-  Emerald: { green: "#0E6B57", dark: "#0A4E40", soft: "#E6F2EE", soft2: "#D2E8E1" },
-  Teal:    { green: "#0E7490", dark: "#0A5468", soft: "#E3F1F5", soft2: "#CDE6ED" },
-  Indigo:  { green: "#4338CA", dark: "#312E81", soft: "#EAE9FB", soft2: "#DAD8F6" },
-  Plum:    { green: "#9333EA", dark: "#6B21A8", soft: "#F3E9FC", soft2: "#EAD9F8" },
+const ACCENTS: Record<Accent, { green: string; dark: string; soft: string; soft2: string; header: string }> = {
+  Emerald: { green: "#0E6B57", dark: "#0A4E40", soft: "#E6F2EE", soft2: "#D2E8E1", header: "#0B3D33" },
+  Teal:    { green: "#0E7490", dark: "#0A5468", soft: "#E3F1F5", soft2: "#CDE6ED", header: "#0A3B45" },
+  Indigo:  { green: "#4338CA", dark: "#312E81", soft: "#EAE9FB", soft2: "#DAD8F6", header: "#1E1B4B" },
+  Plum:    { green: "#9333EA", dark: "#6B21A8", soft: "#F3E9FC", soft2: "#EAD9F8", header: "#3B0764" },
 };
-const RADII: Record<Corners, string> = { Rounded: "1.05rem", Soft: "0.85rem", Sharp: "0.5rem" };
+const RADII: Record<Corners, string> = { Rounded: "0.85rem", Soft: "0.625rem", Sharp: "0.4rem" };
 
 const DEFAULTS: Tweaks = { accent: "Emerald", corners: "Soft", bigText: false };
 const KEY = "pe-tweaks-v1";
@@ -32,6 +32,7 @@ function apply(t: Tweaks) {
   root.style.setProperty("--pe-green-dark", a.dark);
   root.style.setProperty("--pe-green-soft", a.soft);
   root.style.setProperty("--pe-green-soft-2", a.soft2);
+  root.style.setProperty("--pe-header", a.header);
   root.style.setProperty("--primary", a.green);
   root.style.setProperty("--ring", a.green);
   root.style.setProperty("--accent", a.soft);

@@ -93,6 +93,10 @@ export type Sale = {
   extraExpensesChargeCustomer: boolean;
   gstRate?: number | null;
   archived: boolean;
+  // How the money in amountPaid arrived (bill composer). Client-side hint only:
+  // it's stamped onto the sale-linked payment row the store creates, never
+  // stored on the sale itself, so it's undefined on rows read back from the DB.
+  paidMode?: PaymentMode | null;
   addedBy: string;
   createdAt: string;
   createdBy?: string | null;
@@ -674,6 +678,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
                       sale_id: s.id,
                       date: s.date,
                       amount: s.amountPaid,
+                      mode: s.paidMode ?? null,
                       created_by: uid,
                     })),
                   );
@@ -760,6 +765,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
                       sale_id: s.id,
                       date: today(),
                       amount: delta,
+                      mode: s.paidMode ?? null,
                       created_by: uid,
                     });
                     if (pe) throw pe;

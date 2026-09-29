@@ -12,7 +12,7 @@
  */
 
 @theme inline {
-  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -57,7 +57,7 @@
 }
 
 :root {
-  --radius: 0.85rem;
+  --radius: 0.625rem;
 
   /* Pioneer palette (hex equivalents in oklch) */
   --pe-green: #0E6B57;
@@ -79,6 +79,16 @@
   --pe-bad-bg: #FBE7E4;
   --pe-info: #1D5FB0;
   --pe-info-bg: #E5EEFA;
+  /* Emerald redesign: dark header bar, gold call-to-action, raised surfaces */
+  --pe-header: #0B3D33;
+  --pe-header-fg: rgba(255, 255, 255, 0.7);
+  --pe-header-line: rgba(255, 255, 255, 0.14);
+  --pe-gold: #F4C95D;
+  --pe-gold-ink: #0B3D33;
+  --pe-bg-2: #FAF9F5;
+  --pe-line-3: #F2F0E7;
+  --pe-shadow: 0 1px 2px rgba(20, 32, 29, 0.04);
+  --pe-shadow-lg: 0 1px 2px rgba(20, 32, 29, 0.04), 0 12px 32px rgba(20, 32, 29, 0.06);
 
   /* shadcn tokens mapped onto Pioneer palette */
   --background: #F6F4EC;
@@ -136,6 +146,9 @@
   --pe-bad-bg: #3A1E1B;
   --pe-info: #7FB0F2;
   --pe-info-bg: #16263A;
+  --pe-header: #0B3D33;
+  --pe-bg-2: #131B19;
+  --pe-line-3: #1B2724;
 
   --background: #0F1614;
   --foreground: #F4F2EA;
@@ -179,7 +192,8 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
-    font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+    font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -196,6 +210,19 @@
 .pe-card-hover { transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease, background .14s ease; }
 .pe-card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(20, 32, 29, .10); }
 .pe-nav-idle:hover { background: #F2F0E7 !important; color: var(--pe-ink) !important; }
+
+/* Emerald header nav tab + generic hover helpers (inline styles can't express :hover) */
+.pe-tab:hover { color: #fff !important; }
+.pe-row-hover:hover { background: var(--pe-bg-2); }
+.pe-chip-hover:hover { border-color: var(--pe-green) !important; color: var(--pe-green) !important; }
+.pe-hover-bg:hover { background: var(--pe-bg) !important; }
+.pe-btn-primary:hover { background: var(--pe-green-dark) !important; }
+.pe-btn-gold:hover { opacity: .9; }
+.pe-x-hover:hover { background: var(--pe-bad-bg) !important; color: var(--pe-bad) !important; }
+.pe-link:hover { color: var(--pe-green-dark) !important; }
+.pe-scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.pe-scroll-x::-webkit-scrollbar { height: 8px; }
+.pe-scroll-x::-webkit-scrollbar-thumb { background: #DDD9CC; border-radius: 8px; }
 
 .pe-4grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .pe-3grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }

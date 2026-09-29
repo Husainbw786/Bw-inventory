@@ -55,7 +55,12 @@
   "fullScopeUrl": "https://bwinventory.husainbw.in/",
   "minSdkVersion": 21,
   "orientation": "default",
-  "fingerprints": [],
+  "fingerprints": [
+    {
+      "name": "upload",
+      "value": "F8:6C:29:40:0F:1C:44:34:2F:86:78:D0:D9:4D:05:A2:30:B4:4B:E4:BA:A0:9B:BD:17:B6:33:A5:28:AF:E0:75"
+    }
+  ],
   "additionalTrustedOrigins": ["https://bw-inventory.bw-inventory.workers.dev"],
   "retainedBundles": []
 }

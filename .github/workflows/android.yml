@@ -89,12 +89,26 @@ jobs:
           set -euo pipefail
           HOST="$(node -p "require('./android/twa-manifest.json').host")"
           echo "host=$HOST"
+          # Same User-Agent Bubblewrap's fetch layer sends, so this check predicts its downloads.
+          UA='Mozilla/5.0 (X11; Linux x86_64; rv:60.0) Gecko/20100101 Firefox/81.0'
+          probe() { curl -sS -A "$UA" -o /tmp/probe.body -D /tmp/probe.hdr -w '%{http_code}' "$1" || echo "000"; }
+          ok=1
           for p in /manifest.webmanifest /icons/icon-512.png /icons/icon-512-maskable.png /icons/icon-192.png /.well-known/assetlinks.json; do
-            code="$(curl -sS -o /dev/null -w '%{http_code}' "https://$HOST$p")"
+            code="$(probe "https://$HOST$p")"
             echo "$code  $p"
-            [[ "$code" == "200" ]] || { echo "::error::https://$HOST$p returned $code — deploy the web side (push to main) first"; exit 1; }
+            if [[ "$code" != "200" ]]; then
+              ok=0
+              echo "--- response headers ---"; grep -iE '^(HTTP/|server|cf-ray|cf-mitigated|content-type|cf-cache-status|location)' /tmp/probe.hdr || true
+              echo "--- body (first 300 chars) ---"; head -c 300 /tmp/probe.body || true; echo
+              echo "--- same path with curl's default UA ---"; curl -sS -o /dev/null -w '%{http_code}\n' "https://$HOST$p" || true
+              echo "--- same path on workers.dev ---"; curl -sS -A "$UA" -o /dev/null -w '%{http_code}\n' "https://bw-inventory.bw-inventory.workers.dev$p" || true
+            fi
           done
-          if [[ "$(curl -sS "https://$HOST/.well-known/assetlinks.json")" == "[]" ]]; then
+          if [[ "$ok" != "1" ]]; then
+            echo "::error::https://$HOST does not serve the PWA files to a non-browser client. If the headers above show 'cf-mitigated: challenge' (HTTP 403), Cloudflare bot protection is blocking it: Cloudflare dashboard → the zone → Security → Bots → turn off Bot Fight Mode (or, on a paid plan, add a WAF skip rule for /manifest.webmanifest, /icons/* and /.well-known/*). If it is a 404, deploy the web side first (push to main)."
+            exit 1
+          fi
+          if [[ "$(curl -sS -A "$UA" "https://$HOST/.well-known/assetlinks.json")" == "[]" ]]; then
             echo "::warning::assetlinks.json is empty — the app will show Chrome's toolbar until the signing fingerprints are published (see android/README.md)"
           fi
 

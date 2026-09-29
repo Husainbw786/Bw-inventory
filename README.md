@@ -121,7 +121,7 @@ The Android app is the website packaged as a **Trusted Web Activity (TWA)**: a P
 
 | File | Purpose |
 |---|---|
-| `manifest.json` | Name, colours, `start_url`, icons, home-screen shortcuts. Linked from `__root.tsx`. Kept as `.json` rather than `.webmanifest` because Cloudflare's bot challenge exempts common static extensions and the Android build tooling must fetch it without a browser. |
+| `.well-known/manifest.json` | Name, colours, `start_url`, icons, home-screen shortcuts. Linked from `__root.tsx`. Lives under `/.well-known/` because Cloudflare's bot challenge on the zone exempts that prefix (and static extensions) but challenges other `.json`/`.html` paths, and the Android build tooling must fetch the manifest without a browser. |
 | `sw.js` | Service worker: offline fallback page + cache for hashed `/assets/`. Never caches HTML, `/_serverFn/` or Supabase. Bump `CACHE_VERSION` to flush. Registered in production only ([pwa.ts](src/lib/pwa.ts)). |
 | `offline.html` | Self-contained page shown when a navigation fails offline (served at `/offline`; Cloudflare strips the extension). |
 | `_headers` | Cloudflare static-asset headers: `no-cache` for the worker/manifest, immutable for `/assets/*`. |

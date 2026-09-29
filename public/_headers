@@ -6,9 +6,10 @@
   Cache-Control: no-cache
   Service-Worker-Allowed: /
 
-# Named .json (not .webmanifest) on purpose: Cloudflare bot protection exempts common
-# static extensions, and Bubblewrap / Play tooling must fetch it without a browser.
-/manifest.json
+# Lives under /.well-known/ on purpose: Cloudflare's bot challenge on this zone exempts
+# that prefix (and static extensions like .png/.js) but challenges other .json/.html paths,
+# and Bubblewrap / Play tooling must fetch the manifest without a browser.
+/.well-known/manifest.json
   Cache-Control: no-cache
   Content-Type: application/manifest+json
 

@@ -63,7 +63,7 @@ self.addEventListener("fetch", (event) => {
     p.startsWith("/api/") ||
     p.startsWith("/.well-known/") ||
     p === "/sw.js" ||
-    p === "/manifest.webmanifest"
+    p === "/manifest.json"
   ) {
     return;
   }

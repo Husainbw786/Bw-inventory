@@ -1,6 +1,6 @@
 {
   "packageId": "com.bwinventory.app",
-  "host": "bw-inventory.bw-inventory.workers.dev",
+  "host": "bwinventory.husainbw.in",
   "name": "BW Inventory",
   "launcherName": "BW Inventory",
   "display": "standalone",
@@ -13,8 +13,8 @@
   "backgroundColor": "#F6F4EC",
   "enableNotifications": false,
   "startUrl": "/?source=twa",
-  "iconUrl": "https://bw-inventory.bw-inventory.workers.dev/icons/icon-512.png",
-  "maskableIconUrl": "https://bw-inventory.bw-inventory.workers.dev/icons/icon-512-maskable.png",
+  "iconUrl": "https://bwinventory.husainbw.in/icons/icon-512.png",
+  "maskableIconUrl": "https://bwinventory.husainbw.in/icons/icon-512-maskable.png",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
     "path": "./upload.keystore",
@@ -26,24 +26,24 @@
     {
       "name": "New bill",
       "shortName": "New bill",
-      "url": "https://bw-inventory.bw-inventory.workers.dev/sales/new?source=shortcut",
-      "chosenIconUrl": "https://bw-inventory.bw-inventory.workers.dev/icons/icon-192.png"
+      "url": "https://bwinventory.husainbw.in/sales/new?source=shortcut",
+      "chosenIconUrl": "https://bwinventory.husainbw.in/icons/icon-192.png"
     },
     {
       "name": "Quick entry",
       "shortName": "Entry",
-      "url": "https://bw-inventory.bw-inventory.workers.dev/entry?type=in&source=shortcut",
-      "chosenIconUrl": "https://bw-inventory.bw-inventory.workers.dev/icons/icon-192.png"
+      "url": "https://bwinventory.husainbw.in/entry?type=in&source=shortcut",
+      "chosenIconUrl": "https://bwinventory.husainbw.in/icons/icon-192.png"
     },
     {
       "name": "Items",
       "shortName": "Items",
-      "url": "https://bw-inventory.bw-inventory.workers.dev/items?source=shortcut",
-      "chosenIconUrl": "https://bw-inventory.bw-inventory.workers.dev/icons/icon-192.png"
+      "url": "https://bwinventory.husainbw.in/items?source=shortcut",
+      "chosenIconUrl": "https://bwinventory.husainbw.in/icons/icon-192.png"
     }
   ],
   "generatorApp": "bubblewrap-cli",
-  "webManifestUrl": "https://bw-inventory.bw-inventory.workers.dev/manifest.webmanifest",
+  "webManifestUrl": "https://bwinventory.husainbw.in/manifest.webmanifest",
   "fallbackType": "customtabs",
   "features": {},
   "alphaDependencies": {
@@ -52,10 +52,10 @@
   "enableSiteSettingsShortcut": true,
   "isChromeOSOnly": false,
   "isMetaQuest": false,
-  "fullScopeUrl": "https://bw-inventory.bw-inventory.workers.dev/",
+  "fullScopeUrl": "https://bwinventory.husainbw.in/",
   "minSdkVersion": 21,
   "orientation": "default",
   "fingerprints": [],
-  "additionalTrustedOrigins": [],
+  "additionalTrustedOrigins": ["https://bw-inventory.bw-inventory.workers.dev"],
   "retainedBundles": []
 }

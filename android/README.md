@@ -8,7 +8,7 @@ Only `twa-manifest.json`, `store-assets/` and this file are committed. The Gradl
 
 ### 1. Confirm the host
 
-`twa-manifest.json` binds the app to one origin: the `host` field plus every absolute URL in it (`iconUrl`, `maskableIconUrl`, `webManifestUrl`, `fullScopeUrl`, shortcut `url`s and `chosenIconUrl`s). It is currently set to `bw-inventory.bw-inventory.workers.dev`. Check the real hostname in the Cloudflare dashboard and search-and-replace if it differs. The workflow fails early if the host does not serve the manifest and icons.
+`twa-manifest.json` binds the app to one origin: the `host` field plus every absolute URL in it (`iconUrl`, `maskableIconUrl`, `webManifestUrl`, `fullScopeUrl`, shortcut `url`s and `chosenIconUrl`s). It is set to the custom domain `bwinventory.husainbw.in`; the workers.dev host (`bw-inventory.bw-inventory.workers.dev`) is listed under `additionalTrustedOrigins` so links to it stay inside the app. If the domain ever changes, search-and-replace every occurrence and publish new asset links. The workflow fails early if the host does not serve the manifest and icons.
 
 ### 2. Choose the package id
 

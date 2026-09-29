@@ -4,7 +4,7 @@ Shop inventory & billing app for a small trading business — track items, purch
 
 Built with **TanStack Start (React 19) + Supabase**, deployed to **Cloudflare Workers**.
 
-**Live:** the `bw-inventory` Worker on workers.dev (see the Cloudflare dashboard for the exact `*.workers.dev` host; the worker was renamed from `tanstack-start-app`).
+**Live:** https://bwinventory.husainbw.in (custom domain on the `bw-inventory` Worker; `bw-inventory.bw-inventory.workers.dev` serves the same deploy).
 
 ## Features
 

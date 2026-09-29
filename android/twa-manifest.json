@@ -43,7 +43,7 @@
     }
   ],
   "generatorApp": "bubblewrap-cli",
-  "webManifestUrl": "https://bwinventory.husainbw.in/manifest.webmanifest",
+  "webManifestUrl": "https://bwinventory.husainbw.in/manifest.json",
   "fallbackType": "customtabs",
   "features": {},
   "alphaDependencies": {

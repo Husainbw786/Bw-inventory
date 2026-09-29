@@ -1,5 +1,5 @@
 // PWA glue: service-worker registration and the "Install app" prompt.
-// The worker itself lives in public/sw.js; the manifest in public/manifest.webmanifest.
+// The worker itself lives in public/sw.js; the manifest in public/manifest.json.
 import * as React from "react";
 
 type BeforeInstallPromptEvent = Event & {

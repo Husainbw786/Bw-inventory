@@ -105,6 +105,16 @@ jobs:
             fi
           done
           if [[ "$ok" != "1" ]]; then
+            echo "--- diagnostics: which paths does Cloudflare challenge? (403 + cf-mitigated = challenged; 404 = reached the Worker) ---"
+            printf '%-6s %-6s %-12s %s\n' "code" "curlUA" "mitigated" "path"
+            for q in / /privacy /offline /offline.html /manifest.json /manifest.webmanifest /manifest.js /manifest.txt \
+                     /.well-known/assetlinks.json /.well-known/manifest.json /.well-known/does-not-exist.json /.well-known/x \
+                     /icons/icon-192.png /icons/icon.svg /icons/nope.png /sw.js /assets/nope.js /robots.txt /favicon.ico /nope.json /nope.png; do
+              c1=$(curl -sS -A "$UA" -o /dev/null -D /tmp/probe.h -w '%{http_code}' "https://$HOST$q" || echo 000)
+              c2=$(curl -sS -o /dev/null -w '%{http_code}' "https://$HOST$q" || echo 000)
+              mit=$(grep -i '^cf-mitigated' /tmp/probe.h | tr -d '\r' | cut -d' ' -f2)
+              printf '%-6s %-6s %-12s %s\n' "$c1" "$c2" "${mit:--}" "$q"
+            done
             echo "::error::https://$HOST does not serve the PWA files to a non-browser client. If the headers above show 'cf-mitigated: challenge' (HTTP 403), Cloudflare bot protection is blocking it: Cloudflare dashboard → the zone → Security → Bots → turn off Bot Fight Mode (or, on a paid plan, add a WAF skip rule for /manifest.json, /icons/* and /.well-known/*). If it is a 404, deploy the web side first (push to main)."
             exit 1
           fi

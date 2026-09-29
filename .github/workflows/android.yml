@@ -112,7 +112,7 @@ jobs:
                      /icons/icon-192.png /icons/icon.svg /icons/nope.png /sw.js /assets/nope.js /robots.txt /favicon.ico /nope.json /nope.png; do
               c1=$(curl -sS -A "$UA" -o /dev/null -D /tmp/probe.h -w '%{http_code}' "https://$HOST$q" || echo 000)
               c2=$(curl -sS -o /dev/null -w '%{http_code}' "https://$HOST$q" || echo 000)
-              mit=$(grep -i '^cf-mitigated' /tmp/probe.h | tr -d '\r' | cut -d' ' -f2)
+              mit=$( (grep -i '^cf-mitigated' /tmp/probe.h || true) | tr -d '\r' | cut -d' ' -f2)
               printf '%-6s %-6s %-12s %s\n' "$c1" "$c2" "${mit:--}" "$q"
             done
             echo "::error::https://$HOST does not serve the PWA files to a non-browser client. If the headers above show 'cf-mitigated: challenge' (HTTP 403), Cloudflare bot protection is blocking it: Cloudflare dashboard → the zone → Security → Bots → turn off Bot Fight Mode (or, on a paid plan, add a WAF skip rule for /manifest.json, /icons/* and /.well-known/*). If it is a 404, deploy the web side first (push to main)."

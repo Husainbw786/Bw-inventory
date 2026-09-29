@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -14,6 +15,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { BusinessProvider, useBusiness } from "@/lib/business";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/lib/theme";
+import { registerServiceWorker } from "@/lib/pwa";
 
 function NotFoundComponent() {
   return (
@@ -65,6 +67,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "BW Inventory — Shop Manager" },
       { name: "description", content: "Multi-business inventory, sales, purchases, and expenses tracker." },
       { name: "theme-color", content: "#0B3D33" },
+      // Installed-app (PWA / Android TWA) presentation
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "BW Inventory" },
+      { name: "application-name", content: "BW Inventory" },
       { property: "og:title", content: "BW Inventory — Shop Manager" },
       { name: "twitter:title", content: "BW Inventory — Shop Manager" },
       { property: "og:description", content: "Multi-business inventory, sales, purchases, and expenses tracker." },
@@ -74,6 +82,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "icon", type: "image/svg+xml", href: "/icons/icon.svg" },
+      { rel: "icon", type: "image/png", sizes: "32x32", href: "/icons/favicon-32.png" },
+      { rel: "apple-touch-icon", sizes: "180x180", href: "/icons/apple-touch-icon-180.png" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" },
@@ -99,6 +111,9 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  useEffect(() => {
+    registerServiceWorker();
+  }, []);
   return (
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
@@ -122,7 +137,7 @@ function AuthGate() {
   if (loading) {
     return <div className="min-h-dvh flex items-center justify-center text-sm text-muted-foreground">Loading…</div>;
   }
-  const publicPaths = ["/auth", "/reset-password"];
+  const publicPaths = ["/auth", "/reset-password", "/privacy"];
   const isInvitePath = path.startsWith("/invite/");
   if (!session && !publicPaths.includes(path) && !isInvitePath) {
     if (typeof window !== "undefined") window.location.replace("/auth");

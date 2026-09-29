@@ -27,6 +27,7 @@ import {
   ArrowUpRight,
   UserPlus,
   X,
+  Download,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
@@ -48,6 +49,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth, signOut } from "@/lib/auth";
 import { useBusiness } from "@/lib/business";
+import { usePwaInstall } from "@/lib/pwa";
 import {
   useDB,
   schemaUpgradePending,
@@ -212,6 +214,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const { current, memberships, role, switchTo } = useBusiness();
   const [db] = useDB();
   const [moreOpen, setMoreOpen] = React.useState(false);
+  const { canInstall, install } = usePwaInstall();
   const [addOpen, setAddOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
   const navigate = useNavigate();
@@ -551,6 +554,34 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       </Link>
                     );
                   })}
+                {canInstall && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      void install();
+                    }}
+                    className="flex items-center gap-3 rounded-xl border border-[color:var(--pe-line)] bg-card p-3 text-left pe-card-hover"
+                  >
+                    <span
+                      className="inline-flex items-center justify-center"
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 11,
+                        background: "var(--pe-green-soft)",
+                        color: "var(--pe-green)",
+                      }}
+                    >
+                      <Download className="h-5 w-5" />
+                    </span>
+                    <span className="flex-1">
+                      <span className="block font-semibold text-[color:var(--pe-ink)]">Install app</span>
+                      <span className="block text-xs text-[color:var(--pe-ink-3)]">Add BW Inventory to your home screen</span>
+                    </span>
+                    <ChevronRight className="h-5 w-5 text-[color:var(--pe-ink-3)]" />
+                  </button>
+                )}
               </div>
             </SheetContent>
           </Sheet>
@@ -775,6 +806,7 @@ function AlertsMenu({ lowCount, style }: { lowCount: number; style: React.CSSPro
 // Avatar circle: who's signed in, accent colour, sign out.
 function UserMenu({ displayName, role }: { displayName: string; role: string | null }) {
   const { accent, setAccent } = useTheme();
+  const { canInstall, install } = usePwaInstall();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -834,6 +866,11 @@ function UserMenu({ displayName, role }: { displayName: string; role: string | n
           })}
         </div>
         <DropdownMenuSeparator />
+        {canInstall && (
+          <DropdownMenuItem onClick={() => void install()}>
+            <Download className="h-4 w-4 mr-2" /> Install app
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={() => signOut().then(() => (window.location.href = "/auth"))}>
           <LogOut className="h-4 w-4 mr-2" /> Sign out
         </DropdownMenuItem>

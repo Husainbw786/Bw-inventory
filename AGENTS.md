@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in this repository. See [README.md](README.md) for the full project overview.
+Guidance for AI coding agents working in this repository. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full project overview ([README.md](README.md) is the screenshot tour).
 
 ## What this is
 

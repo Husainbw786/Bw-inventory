@@ -139,11 +139,13 @@ jobs:
           if ! keytool -list -keystore android/upload.keystore -storepass "$KS_PASS" -alias "$ALIAS" >/dev/null 2>&1; then
             echo "::error::ANDROID_KEYSTORE_PASSWORD does not open the keystore, or alias '$ALIAS' is missing"; exit 1
           fi
-          if ! keytool -importkeystore -srckeystore android/upload.keystore -srcstorepass "$KS_PASS" -srckeypass "$KEY_PASS" \
-               -srcalias "$ALIAS" -destkeystore /tmp/keycheck.p12 -deststorepass keycheck1 -destkeypass keycheck1 -noprompt >/dev/null 2>&1; then
+          # keytool ignores a key password on PKCS12 stores, so sign a throwaway jar with
+          # jarsigner instead: it fails exactly the way apksigner would.
+          echo check > /tmp/keycheck.txt && (cd /tmp && jar cf keycheck.jar keycheck.txt)
+          if ! jarsigner -keystore android/upload.keystore -storepass "$KS_PASS" -keypass "$KEY_PASS" /tmp/keycheck.jar "$ALIAS" >/dev/null 2>&1; then
             echo "::error::ANDROID_KEY_PASSWORD does not unlock key '$ALIAS'. For a PKCS12 keystore (the keytool default) the key password is the keystore password — set ANDROID_KEY_PASSWORD to the same value as ANDROID_KEYSTORE_PASSWORD."; exit 1
           fi
-          rm -f /tmp/keycheck.p12
+          rm -f /tmp/keycheck.jar /tmp/keycheck.txt
           echo "keystore and key passwords verified"
 
       - name: Generate Android project

@@ -239,18 +239,35 @@ function friendlyError(e: any): string {
   return msg;
 }
 
+// PostgREST caps each response (1000 rows by default), so a single select
+// silently truncates big businesses. Page through with .range() until a short
+// page; `id` breaks created_at ties (bulk imports share one timestamp) so
+// pages never overlap or skip rows.
+const PAGE = 1000;
+async function selectAll<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
+): Promise<{ data: T[] | null; error: any }> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await page(from, from + PAGE - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE) return { data: rows, error: null };
+  }
+}
+
 async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> {
   const [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, paymentsR, adjustmentsR, profilesR, gstProbeR, purchaseLinkProbeR, waSessionProbeR] =
     await Promise.all([
-      supabase.from("items").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
-      supabase.from("dealers").select("*").eq("business_id", bid).order("created_at"),
-      supabase.from("customers").select("*").eq("business_id", bid).order("created_at"),
-      supabase.from("purchases").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
-      supabase.from("sales").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
-      supabase.from("sale_lines").select("*, sales!inner(business_id)").eq("sales.business_id", bid),
-      supabase.from("expenses").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
-      supabase.from("payments").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
-      supabase.from("stock_adjustments").select("*").eq("business_id", bid).order("created_at", { ascending: false }),
+      selectAll((f, t) => supabase.from("items").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
+      selectAll((f, t) => supabase.from("dealers").select("*").eq("business_id", bid).order("created_at").order("id").range(f, t)),
+      selectAll((f, t) => supabase.from("customers").select("*").eq("business_id", bid).order("created_at").order("id").range(f, t)),
+      selectAll((f, t) => supabase.from("purchases").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
+      selectAll((f, t) => supabase.from("sales").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
+      selectAll((f, t) => supabase.from("sale_lines").select("*, sales!inner(business_id)").eq("sales.business_id", bid).order("id").range(f, t)),
+      selectAll((f, t) => supabase.from("expenses").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
+      selectAll((f, t) => supabase.from("payments").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
+      selectAll((f, t) => supabase.from("stock_adjustments").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
       supabase.from("profiles").select("id, display_name"),
       supabase.from("items").select("gst_rate").limit(1), // capability probe: 42703 = old schema
       supabase.from("payments").select("purchase_id").limit(1), // capability probe: 42703 = old schema
@@ -663,7 +680,12 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
                 );
                 if (linesPayload.length) {
                   const { error: e2 } = await supabase.from("sale_lines").insert(linesPayload);
-                  if (e2) throw e2;
+                  if (e2) {
+                    // Lines rejected (e.g. stock trigger): drop the just-created
+                    // header so the failure doesn't leave an empty bill behind.
+                    await supabase.from("sales").delete().in("id", added.map((s) => s.id));
+                    throw e2;
+                  }
                 }
                 // Ledger: a new sale that already has money received gets a
                 // matching payment entry (after the sale row, for the FK).

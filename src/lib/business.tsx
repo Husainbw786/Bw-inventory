@@ -39,16 +39,25 @@ const BusinessCtx = React.createContext<Ctx>({
 
 const LS_KEY = "activeBusinessId";
 
+function storedBusinessId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(LS_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function BusinessProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [loading, setLoading] = React.useState(true);
   const [memberships, setMemberships] = React.useState<Membership[]>([]);
-  const [currentId, setCurrentId] = React.useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return window.localStorage.getItem(LS_KEY);
-  });
+  const [currentId, setCurrentId] = React.useState<string | null>(storedBusinessId);
 
   const load = React.useCallback(async () => {
+    // Session is still being restored on page load: treating that as "signed
+    // out" would wipe the saved business and fall back to the first one.
+    if (authLoading) return;
     if (!user) {
       setMemberships([]);
       setLoading(false);
@@ -57,14 +66,18 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     let { data, error } = await supabase
       .from("business_members")
-      .select("role, business:businesses(id, name, phone, address, gstin, owner_id, sheets_spreadsheet_id)")
+      .select(
+        "role, business:businesses(id, name, phone, address, gstin, owner_id, sheets_spreadsheet_id)",
+      )
       .eq("user_id", user.id);
     if (error?.code === "42703") {
       // gstin column missing = migrations not applied yet. Retry without it so
       // users can still open their business mid-rollout.
       const retry = await supabase
         .from("business_members")
-        .select("role, business:businesses(id, name, phone, address, owner_id, sheets_spreadsheet_id)")
+        .select(
+          "role, business:businesses(id, name, phone, address, owner_id, sheets_spreadsheet_id)",
+        )
         .eq("user_id", user.id);
       error = retry.error;
       data = (retry.data ?? []).map((r: any) => ({
@@ -84,7 +97,7 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
     list.sort((a, b) => a.business.name.localeCompare(b.business.name));
     setMemberships(list);
     setLoading(false);
-  }, [user?.id]);
+  }, [user?.id, authLoading]);
 
   React.useEffect(() => {
     void load();
@@ -93,16 +106,17 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
   // Pick a default current business
   React.useEffect(() => {
     if (loading) return;
+    // Keep the saved id when there are no memberships (signOut clears it).
     if (memberships.length === 0) {
       setCurrentId(null);
-      if (typeof window !== "undefined") window.localStorage.removeItem(LS_KEY);
       return;
     }
-    const stillValid = currentId && memberships.some((m) => m.business.id === currentId);
-    if (!stillValid) {
-      const first = memberships[0].business.id;
-      setCurrentId(first);
-      if (typeof window !== "undefined") window.localStorage.setItem(LS_KEY, first);
+    const isMember = (id: string | null) => !!id && memberships.some((m) => m.business.id === id);
+    if (!isMember(currentId)) {
+      const saved = storedBusinessId();
+      const next = isMember(saved) ? saved! : memberships[0].business.id;
+      setCurrentId(next);
+      if (typeof window !== "undefined") window.localStorage.setItem(LS_KEY, next);
     }
   }, [memberships, loading, currentId]);
 

@@ -78,6 +78,7 @@ import {
 import { contactsSupported, pickContacts } from "@/lib/contacts";
 import { downloadStatementPdf } from "@/lib/statementPdf";
 import { MobileHeader } from "@/components/AppLayout";
+import { useShowMore } from "@/lib/useShowMore";
 
 type Tab = "customers" | "dealers";
 type Kind = "customer" | "dealer";
@@ -151,6 +152,7 @@ function DirectoryPage() {
         (p.name + " " + (p.phone ?? "") + " " + (p.address ?? "")).toLowerCase().includes(ql),
       )
     : withBalance;
+  const { shown, more } = useShowMore(list);
   const selected = all.find((p) => p.id === partyId) ?? list[0]?.p ?? all[0] ?? null;
 
   const receivable = totalReceivable(db);
@@ -354,7 +356,7 @@ function DirectoryPage() {
             </div>
           </div>
           <div className="max-h-[70dvh] overflow-y-auto">
-            {list.map(({ p, balance }) => {
+            {shown.map(({ p, balance }) => {
               const on = selected?.id === p.id;
               return (
                 <div
@@ -405,6 +407,7 @@ function DirectoryPage() {
                 </div>
               );
             })}
+            {more}
             {list.length === 0 && (
               <PeEmpty>{all.length === 0 ? `No ${tab} yet.` : "No match."}</PeEmpty>
             )}

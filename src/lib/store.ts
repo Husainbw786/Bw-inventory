@@ -9,6 +9,7 @@ import { useAuth } from "./auth";
 import { useBusiness } from "./business";
 import { toast } from "sonner";
 import { mirrorToSheets } from "./sheets.functions";
+import { readSnapshot, writeSnapshot } from "./localCache";
 
 // Fire-and-forget Sheets backup; never block UI or surface errors to user.
 type MirrorJob = {
@@ -191,6 +192,12 @@ const EMPTY: DB = {
 
 const QK = (bid: string) => ["biz-db", bid] as const;
 
+// What fetchAll returns and what the device cache stores.
+type CachedDB = Omit<DB, "shop" | "currentUser">;
+// Last snapshot handed to the device cache per business, so the many useDB
+// callers don't each queue the same write.
+const lastSaved = new Map<string, CachedDB>();
+
 // Schema capability flags, detected on every fetch. False = the DB migrations
 // haven't been applied yet (mid-rollout); writes then omit the new fields so
 // every dialog keeps working against the old schema instead of erroring with
@@ -240,34 +247,57 @@ function friendlyError(e: any): string {
 }
 
 // PostgREST caps each response (1000 rows by default), so a single select
-// silently truncates big businesses. Page through with .range() until a short
-// page; `id` breaks created_at ties (bulk imports share one timestamp) so
-// pages never overlap or skip rows.
+// silently truncates big businesses. Page through with .range(); `id` breaks
+// created_at ties (bulk imports share one timestamp) so pages never overlap or
+// skip rows. The first page also asks for the row count, so the remaining
+// pages are fetched in parallel instead of one after another.
 const PAGE = 1000;
+const PARALLEL_PAGES = 6;
+type Page<T> = { data: T[] | null; error: any; count?: number | null };
 async function selectAll<T>(
-  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
+  page: (from: number, to: number, withCount: boolean) => PromiseLike<Page<T>>,
 ): Promise<{ data: T[] | null; error: any }> {
-  const rows: T[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await page(from, from + PAGE - 1);
-    if (error) return { data: null, error };
-    rows.push(...(data ?? []));
-    if (!data || data.length < PAGE) return { data: rows, error: null };
-  }
-}
+  const first = await page(0, PAGE - 1, true);
+  if (first.error) return { data: null, error: first.error };
+  const rows: T[] = [...(first.data ?? [])];
+  if (rows.length < PAGE) return { data: rows, error: null };
 
-async function fetchAll(bid: string): Promise<Omit<DB, "shop" | "currentUser">> {
+  const starts: number[] = [];
+  for (let from = PAGE; from < (first.count ?? 0); from += PAGE) starts.push(from);
+  let last = rows.length;
+  for (let i = 0; i < starts.length; i += PARALLEL_PAGES) {
+    const batch = await Promise.all(
+      starts.slice(i, i + PARALLEL_PAGES).map((from) => page(from, from + PAGE - 1, false)),
+    );
+    for (const r of batch) {
+      if (r.error) return { data: null, error: r.error };
+      rows.push(...(r.data ?? []));
+      last = r.data?.length ?? 0;
+    }
+  }
+  // Rows added after the count (or no count returned): keep going until a short page.
+  for (let from = PAGE * (starts.length + 1); last === PAGE; from += PAGE) {
+    const r = await page(from, from + PAGE - 1, false);
+    if (r.error) return { data: null, error: r.error };
+    rows.push(...(r.data ?? []));
+    last = r.data?.length ?? 0;
+  }
+  return { data: rows, error: null };
+}
+const counted = (withCount: boolean) => (withCount ? { count: "exact" as const } : undefined);
+
+async function fetchAll(bid: string): Promise<CachedDB> {
   const [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, paymentsR, adjustmentsR, profilesR, gstProbeR, purchaseLinkProbeR, waSessionProbeR] =
     await Promise.all([
-      selectAll((f, t) => supabase.from("items").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
-      selectAll((f, t) => supabase.from("dealers").select("*").eq("business_id", bid).order("created_at").order("id").range(f, t)),
-      selectAll((f, t) => supabase.from("customers").select("*").eq("business_id", bid).order("created_at").order("id").range(f, t)),
-      selectAll((f, t) => supabase.from("purchases").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
-      selectAll((f, t) => supabase.from("sales").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
-      selectAll((f, t) => supabase.from("sale_lines").select("*, sales!inner(business_id)").eq("sales.business_id", bid).order("id").range(f, t)),
-      selectAll((f, t) => supabase.from("expenses").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
-      selectAll((f, t) => supabase.from("payments").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
-      selectAll((f, t) => supabase.from("stock_adjustments").select("*").eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
+      selectAll((f, t, c) => supabase.from("items").select("*", counted(c)).eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
+      selectAll((f, t, c) => supabase.from("dealers").select("*", counted(c)).eq("business_id", bid).order("created_at").order("id").range(f, t)),
+      selectAll((f, t, c) => supabase.from("customers").select("*", counted(c)).eq("business_id", bid).order("created_at").order("id").range(f, t)),
+      selectAll((f, t, c) => supabase.from("purchases").select("*", counted(c)).eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
+      selectAll((f, t, c) => supabase.from("sales").select("*", counted(c)).eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
+      selectAll((f, t, c) => supabase.from("sale_lines").select("*, sales!inner(business_id)", counted(c)).eq("sales.business_id", bid).order("id").range(f, t)),
+      selectAll((f, t, c) => supabase.from("expenses").select("*", counted(c)).eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
+      selectAll((f, t, c) => supabase.from("payments").select("*", counted(c)).eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
+      selectAll((f, t, c) => supabase.from("stock_adjustments").select("*", counted(c)).eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
       supabase.from("profiles").select("id, display_name"),
       supabase.from("items").select("gst_rate").limit(1), // capability probe: 42703 = old schema
       supabase.from("payments").select("purchase_id").limit(1), // capability probe: 42703 = old schema
@@ -447,12 +477,35 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
   const bid = current?.id ?? null;
   const qc = useQueryClient();
 
+  const uid = user?.id ?? null;
   const { data } = useQuery({
     queryKey: QK(bid ?? "none"),
     queryFn: () => fetchAll(bid!),
-    enabled: !!user && !!bid,
-    staleTime: 10_000,
+    enabled: !!uid && !!bid,
+    // Every screen calls useDB; a short staleTime re-downloaded the whole
+    // business on each navigation. Saves and app refocus still refresh it.
+    staleTime: 60_000,
   });
+
+  // Show the copy kept on this device while the network catches up. Marked as
+  // old (updatedAt 0) so the fetch that's already running replaces it.
+  React.useEffect(() => {
+    if (!uid || !bid || qc.getQueryData(QK(bid))) return;
+    let cancelled = false;
+    readSnapshot<CachedDB>(uid, bid).then((snap) => {
+      if (!cancelled && snap && !qc.getQueryData(QK(bid))) qc.setQueryData(QK(bid), snap, { updatedAt: 0 });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, bid, qc]);
+
+  React.useEffect(() => {
+    if (uid && bid && data && data !== lastSaved.get(bid)) {
+      lastSaved.set(bid, data);
+      writeSnapshot(uid, bid, data);
+    }
+  }, [uid, bid, data]);
 
   const db: DB = React.useMemo(
     () => ({
@@ -480,7 +533,19 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
         return Promise.resolve({ ok: false, error: "Select a business first" });
       }
       const uid = user.id;
-      const next = updater(db);
+      const proposed = updater(db);
+      // Give new sale lines their ids now: the screen shows this state before
+      // the refetch, and a later edit must diff lines by id.
+      const next: DB = {
+        ...proposed,
+        sales: proposed.sales.map((s) =>
+          s.lines.every((l) => l.id) ? s : { ...s, lines: s.lines.map((l) => (l.id ? l : { ...l, id: newId() })) },
+        ),
+      };
+      // Sale-linked payment rows this save creates, shown with the sale so the
+      // khata never lags behind the bill.
+      const autoPayments: Payment[] = [];
+      const movedSales = new Map<ID, ID>(); // sale id → new customer id
 
       const work = async () => {
         const tasks: PromiseLike<any>[] = [];
@@ -648,6 +713,24 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
             ["date", "customerId", "isBill", "notes", "lines", "paymentReceived", "amountPaid", "extraExpenses", "extraExpensesChargeCustomer", "gstRate", "archived"],
           );
           if (added.length) {
+            // Ledger: a new sale that already has money received gets a
+            // matching payment entry (inserted after the sale row, for the FK).
+            const paidRows = (hasPaymentsTable ? added.filter((s) => s.customerId && s.amountPaid > 0) : []).map((s) => ({
+              id: newId(),
+              business_id: bid,
+              party_type: "customer" as const,
+              party_id: s.customerId!,
+              sale_id: s.id,
+              date: s.date,
+              amount: s.amountPaid,
+              mode: s.paidMode ?? null,
+              created_by: uid,
+            }));
+            for (const r of paidRows)
+              autoPayments.push({
+                id: r.id, date: r.date, partyType: "customer", partyId: r.party_id, saleId: r.sale_id,
+                purchaseId: null, amount: r.amount, mode: r.mode, addedBy: next.currentUser, createdAt: nowIso, createdBy: uid,
+              });
             tasks.push(
               (async () => {
                 const { error } = await supabase.from("sales").insert(
@@ -670,7 +753,7 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
                 if (error) throw error;
                 const linesPayload = added.flatMap((s) =>
                   s.lines.map((l) => ({
-                    id: l.id ?? newId(),
+                    id: l.id,
                     sale_id: s.id,
                     item_id: l.itemId,
                     qty: l.qty,
@@ -687,23 +770,8 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
                     throw e2;
                   }
                 }
-                // Ledger: a new sale that already has money received gets a
-                // matching payment entry (after the sale row, for the FK).
-                const paid = hasPaymentsTable ? added.filter((s) => s.customerId && s.amountPaid > 0) : [];
-                if (paid.length) {
-                  const { error: e3 } = await supabase.from("payments").insert(
-                    paid.map((s) => ({
-                      id: newId(),
-                      business_id: bid,
-                      party_type: "customer",
-                      party_id: s.customerId!,
-                      sale_id: s.id,
-                      date: s.date,
-                      amount: s.amountPaid,
-                      mode: s.paidMode ?? null,
-                      created_by: uid,
-                    })),
-                  );
+                if (paidRows.length) {
+                  const { error: e3 } = await supabase.from("payments").insert(paidRows);
                   if (e3) throw e3;
                 }
               })(),
@@ -737,8 +805,8 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
               prev.archived !== s.archived;
 
 
-            // Per-line diff by id. New lines (no id) get one assigned now.
-            const nextLines = s.lines.map((l) => ({ ...l, id: l.id ?? newId() }));
+            // Per-line diff by id (new lines got theirs when `next` was built).
+            const nextLines = s.lines;
             const lineCmp = (l: SaleLine) => `${l.itemId}|${l.qty}|${l.rate}|${l.gstRate ?? ""}`;
             const prevLineMap = new Map(prev.lines.filter((l) => l.id).map((l) => [l.id!, l]));
             const nextLineIds = new Set(nextLines.map((l) => l.id!));
@@ -748,6 +816,33 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
               const p = prevLineMap.get(l.id!);
               return p && lineCmp(p) !== lineCmp(l);
             });
+
+            // Ledger: a sale moved to another customer takes its linked payment
+            // rows along, or the old customer keeps phantom credit; and the
+            // paid-amount delta is logged so the khata stays in step with
+            // per-sale figures (negative delta = correction).
+            const moveTo = headChanged && prev.customerId !== s.customerId && s.customerId && hasPaymentsTable ? s.customerId : null;
+            if (moveTo) movedSales.set(s.id, moveTo);
+            const delta = s.amountPaid - prev.amountPaid;
+            const deltaRow =
+              headChanged && delta !== 0 && s.customerId && hasPaymentsTable
+                ? {
+                    id: newId(),
+                    business_id: bid,
+                    party_type: "customer" as const,
+                    party_id: s.customerId,
+                    sale_id: s.id,
+                    date: today(),
+                    amount: delta,
+                    mode: s.paidMode ?? null,
+                    created_by: uid,
+                  }
+                : null;
+            if (deltaRow)
+              autoPayments.push({
+                id: deltaRow.id, date: deltaRow.date, partyType: "customer", partyId: deltaRow.party_id, saleId: s.id,
+                purchaseId: null, amount: delta, mode: deltaRow.mode, addedBy: next.currentUser, createdAt: nowIso, createdBy: uid,
+              });
 
             tasks.push(
               (async () => {
@@ -766,30 +861,12 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
 
                   }).eq("id", s.id);
                   if (error) throw error;
-                  // Ledger: a sale moved to another customer takes its linked
-                  // payment rows along, or the old customer keeps phantom credit.
-                  if (prev.customerId !== s.customerId && s.customerId && hasPaymentsTable) {
-                    const { error: re } = await supabase
-                      .from("payments")
-                      .update({ party_id: s.customerId })
-                      .eq("sale_id", s.id);
+                  if (moveTo) {
+                    const { error: re } = await supabase.from("payments").update({ party_id: moveTo }).eq("sale_id", s.id);
                     if (re) throw re;
                   }
-                  // Ledger: log the paid-amount delta so the khata stays in
-                  // step with per-sale figures (negative delta = correction).
-                  const delta = s.amountPaid - prev.amountPaid;
-                  if (delta !== 0 && s.customerId && hasPaymentsTable) {
-                    const { error: pe } = await supabase.from("payments").insert({
-                      id: newId(),
-                      business_id: bid,
-                      party_type: "customer",
-                      party_id: s.customerId,
-                      sale_id: s.id,
-                      date: today(),
-                      amount: delta,
-                      mode: s.paidMode ?? null,
-                      created_by: uid,
-                    });
+                  if (deltaRow) {
+                    const { error: pe } = await supabase.from("payments").insert(deltaRow);
                     if (pe) throw pe;
                   }
                 }
@@ -991,16 +1068,37 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
         return mirrorJobs;
       };
 
-      return work()
-        .then((jobs): SaveResult => {
-          if (bid) backupMirror(jobs, bid);
-          if (bid) qc.invalidateQueries({ queryKey: QK(bid) });
+      const key = QK(bid);
+      const before = qc.getQueryData<CachedDB>(key);
+      const writes = work(); // runs the diff now, filling autoPayments/movedSales
+      // Show the saved state at once instead of after a full re-download. A
+      // refresh already in flight is stopped first so it can't paint the old
+      // data back; the refetch after the writes fills in server-made fields
+      // (bill numbers, names).
+      const shown = before
+        ? qc.cancelQueries({ queryKey: key }).then(() => {
+            const { shop: _shop, currentUser: _user, ...rest } = next;
+            const payments = rest.payments.map((p) =>
+              p.saleId && movedSales.has(p.saleId) ? { ...p, partyId: movedSales.get(p.saleId)! } : p,
+            );
+            qc.setQueryData<CachedDB>(key, { ...rest, payments: [...autoPayments, ...payments] });
+          })
+        : Promise.resolve();
+
+      return Promise.all([writes, shown])
+        .then(([jobs]): SaveResult => {
+          backupMirror(jobs, bid);
+          qc.invalidateQueries({ queryKey: key });
           return { ok: true };
         })
-        .catch((e: Error): SaveResult => {
+        .catch(async (e: Error): Promise<SaveResult> => {
+          // Undo what was shown (after it was shown, or it would win), then
+          // reload: some of the writes may have gone through.
+          await shown.catch(() => {});
+          if (before) qc.setQueryData(key, before);
           const friendly = friendlyError(e);
           toast.error(friendly);
-          if (bid) qc.invalidateQueries({ queryKey: QK(bid) });
+          qc.invalidateQueries({ queryKey: key });
           return { ok: false, error: friendly };
         });
     },
@@ -1037,48 +1135,122 @@ export function fmtDate(iso: string) {
     return iso;
   }
 }
-function adjustedQty(db: DB, itemId: ID) {
-  return db.adjustments.filter((a) => a.itemId === itemId).reduce((s, a) => s + a.qty, 0);
+// ---------- Per-snapshot indexes ----------
+// Screens call the helpers below once per row (every item, every bill), and
+// each call used to rescan all purchases and sales — O(rows²) on every render,
+// which is what made big businesses sluggish. Each index is built once per
+// array and reused until that array is replaced (setDB and refetches always
+// replace arrays, never mutate them).
+function perArray<T extends object, V>(build: (rows: T) => V): (rows: T) => V {
+  const cache = new WeakMap<T, V>();
+  return (rows) => {
+    let v = cache.get(rows);
+    if (v === undefined) {
+      v = build(rows);
+      cache.set(rows, v);
+    }
+    return v;
+  };
+}
+const add = (m: Map<string, number>, k: string | null | undefined, n: number) => {
+  if (k != null) m.set(k, (m.get(k) ?? 0) + n);
+};
+const byIdIndex = perArray((rows: { id: ID }[]) => new Map(rows.map((r) => [r.id, r])));
+
+const purchaseIndex = perArray((purchases: Purchase[]) => {
+  const qty = new Map<ID, number>();
+  const value = new Map<ID, number>();
+  const count = new Map<ID, number>();
+  const last = new Map<ID, Purchase>();
+  const dealerValue = new Map<ID, number>();
+  const dealerCount = new Map<ID, number>();
+  for (const p of purchases) {
+    add(dealerValue, p.dealerId, p.qty * p.rate);
+    add(dealerCount, p.dealerId, 1);
+    if (!p.itemId) continue;
+    add(qty, p.itemId, p.qty);
+    add(value, p.itemId, p.qty * p.rate);
+    add(count, p.itemId, 1);
+    const cur = last.get(p.itemId);
+    if (!cur || p.createdAt > cur.createdAt) last.set(p.itemId, p);
+  }
+  return { qty, value, count, last, dealerValue, dealerCount };
+});
+
+const saleIndex = perArray((sales: Sale[]) => {
+  const outQty = new Map<ID, number>();
+  const salesWithItem = new Map<ID, number>();
+  const lastRate = new Map<ID, number>();
+  const customerPayable = new Map<ID, number>();
+  const customerCount = new Map<ID, number>();
+  for (const s of sales) {
+    add(customerPayable, s.customerId, billPayable(s));
+    add(customerCount, s.customerId, 1);
+    const seen = new Set<ID>();
+    for (const l of s.lines) {
+      if (!l.itemId) continue;
+      add(outQty, l.itemId, l.qty);
+      if (!seen.has(l.itemId)) add(salesWithItem, l.itemId, 1);
+      seen.add(l.itemId);
+    }
+  }
+  // Newest sale first; ties keep list order (same as a stable sort).
+  const newest = sales.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  for (const s of newest)
+    for (const l of s.lines) if (l.itemId && !lastRate.has(l.itemId)) lastRate.set(l.itemId, l.rate);
+  return { outQty, salesWithItem, lastRate, customerPayable, customerCount };
+});
+
+const adjustmentIndex = perArray((adjustments: StockAdjustment[]) => {
+  const qty = new Map<ID, number>();
+  const count = new Map<ID, number>();
+  for (const a of adjustments) {
+    add(qty, a.itemId, a.qty);
+    add(count, a.itemId, 1);
+  }
+  return { qty, count };
+});
+
+const paymentIndex = perArray((payments: Payment[]) => {
+  const sum = new Map<string, number>();
+  const count = new Map<string, number>();
+  for (const p of payments) {
+    add(sum, `${p.partyType}:${p.partyId}`, p.amount);
+    add(count, `${p.partyType}:${p.partyId}`, 1);
+  }
+  return { sum, count };
+});
+
+function soldIn(sale: Sale | undefined, itemId: ID) {
+  return sale ? sale.lines.reduce((s, l) => (l.itemId === itemId ? s + l.qty : s), 0) : 0;
 }
 export function stockOf(db: DB, itemId: ID) {
-  const inQty = db.purchases.filter((p) => p.itemId === itemId).reduce((s, p) => s + p.qty, 0);
-  const outQty = db.sales
-    .flatMap((s) => s.lines.filter((l) => l.itemId === itemId))
-    .reduce((s, l) => s + l.qty, 0);
-  return inQty + adjustedQty(db, itemId) - outQty;
+  return (
+    (purchaseIndex(db.purchases).qty.get(itemId) ?? 0) +
+    (adjustmentIndex(db.adjustments).qty.get(itemId) ?? 0) -
+    (saleIndex(db.sales).outQty.get(itemId) ?? 0)
+  );
 }
 // Stock available for a sale, optionally excluding a specific sale (the one
 // being edited) so editing 10 → 12 against current stock 10 doesn't pretend
 // you've already sold those 10.
 export function stockAvailableFor(db: DB, itemId: ID, excludeSaleId?: ID) {
-  const inQty = db.purchases.filter((p) => p.itemId === itemId).reduce((s, p) => s + p.qty, 0);
-  const outQty = db.sales
-    .filter((s) => s.id !== excludeSaleId)
-    .flatMap((s) => s.lines.filter((l) => l.itemId === itemId))
-    .reduce((s, l) => s + l.qty, 0);
-  return inQty + adjustedQty(db, itemId) - outQty;
+  const excluded = excludeSaleId ? (byIdIndex(db.sales).get(excludeSaleId) as Sale | undefined) : undefined;
+  return stockOf(db, itemId) + soldIn(excluded, itemId);
 }
 export function lastPurchaseRate(db: DB, itemId: ID): number | null {
-  const ps = db.purchases
-    .filter((p) => p.itemId === itemId)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  return ps[0]?.rate ?? null;
+  return purchaseIndex(db.purchases).last.get(itemId)?.rate ?? null;
 }
 export function lastSaleRate(db: DB, itemId: ID): number | null {
-  const lines = db.sales
-    .slice()
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .flatMap((s) => s.lines.filter((l) => l.itemId === itemId));
-  return lines[0]?.rate ?? null;
+  return saleIndex(db.sales).lastRate.get(itemId) ?? null;
 }
 // Weighted-average cost per unit for an item, across ALL purchases (lifetime).
 // Returns 0 if there are no purchases for the item.
 export function avgCostFor(db: DB, itemId: ID): number {
-  const ps = db.purchases.filter((p) => p.itemId === itemId);
-  const qty = ps.reduce((s, p) => s + p.qty, 0);
+  const idx = purchaseIndex(db.purchases);
+  const qty = idx.qty.get(itemId) ?? 0;
   if (qty <= 0) return 0;
-  const val = ps.reduce((s, p) => s + p.qty * p.rate, 0);
-  return val / qty;
+  return (idx.value.get(itemId) ?? 0) / qty;
 }
 // Cost of goods sold for a set of sale lines, using lifetime weighted-avg cost
 // per item. This is the right number for profit; raw purchase spend in a date
@@ -1192,13 +1364,13 @@ export function itemLabel(it: Item) {
   return `${it.company} ${it.name}`;
 }
 export function findItem(db: DB, id: ID | null | undefined) {
-  return id ? db.items.find((i) => i.id === id) : undefined;
+  return id ? (byIdIndex(db.items).get(id) as Item | undefined) : undefined;
 }
 export function findDealer(db: DB, id: ID | null | undefined) {
-  return id ? db.dealers.find((i) => i.id === id) : undefined;
+  return id ? (byIdIndex(db.dealers).get(id) as Person | undefined) : undefined;
 }
 export function findCustomer(db: DB, id: ID | null | undefined) {
-  return id ? db.customers.find((i) => i.id === id) : undefined;
+  return id ? (byIdIndex(db.customers).get(id) as Person | undefined) : undefined;
 }
 
 // Count references to a master record across child tables. Used to block
@@ -1212,15 +1384,15 @@ export function usageCount(
   let sales = 0;
   let other = 0;
   if (kind === "item") {
-    purchases = db.purchases.filter((p) => p.itemId === id).length;
-    sales = db.sales.filter((s) => s.lines.some((l) => l.itemId === id)).length;
-    other = db.adjustments.filter((a) => a.itemId === id).length;
+    purchases = purchaseIndex(db.purchases).count.get(id) ?? 0;
+    sales = saleIndex(db.sales).salesWithItem.get(id) ?? 0;
+    other = adjustmentIndex(db.adjustments).count.get(id) ?? 0;
   } else if (kind === "dealer") {
-    purchases = db.purchases.filter((p) => p.dealerId === id).length;
-    other = db.payments.filter((p) => p.partyType === "dealer" && p.partyId === id).length;
+    purchases = purchaseIndex(db.purchases).dealerCount.get(id) ?? 0;
+    other = paymentIndex(db.payments).count.get(`dealer:${id}`) ?? 0;
   } else if (kind === "customer") {
-    sales = db.sales.filter((s) => s.customerId === id).length;
-    other = db.payments.filter((p) => p.partyType === "customer" && p.partyId === id).length;
+    sales = saleIndex(db.sales).customerCount.get(id) ?? 0;
+    other = paymentIndex(db.payments).count.get(`customer:${id}`) ?? 0;
   }
   return { purchases, sales, total: purchases + sales + other };
 }
@@ -1315,10 +1487,17 @@ export function dealerLedger(db: DB, dealerId: ID): LedgerEntry[] {
   return entries.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
 }
 
-// Positive = customer still owes us / we still owe the dealer.
+// Positive = customer still owes us / we still owe the dealer. Same total as
+// summing the party's ledger (opening + bills/purchases − payments), read from
+// the indexes; rounded to paise so float residue never shows a 0 balance as due.
 export function partyBalance(db: DB, kind: "customer" | "dealer", id: ID): number {
-  const ledger = kind === "customer" ? customerLedger(db, id) : dealerLedger(db, id);
-  return ledger.reduce((s, e) => s + e.debit - e.credit, 0);
+  const person = kind === "customer" ? findCustomer(db, id) : findDealer(db, id);
+  const owed =
+    kind === "customer"
+      ? (saleIndex(db.sales).customerPayable.get(id) ?? 0)
+      : (purchaseIndex(db.purchases).dealerValue.get(id) ?? 0);
+  const paid = paymentIndex(db.payments).sum.get(`${kind}:${id}`) ?? 0;
+  return Math.round(((person?.openingBalance ?? 0) + owed - paid) * 100) / 100;
 }
 // Total receivable across all customers (advances don't offset other parties' dues).
 export function totalReceivable(db: DB): number {

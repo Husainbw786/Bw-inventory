@@ -53,6 +53,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useShowMore } from "@/lib/useShowMore";
 
 type StockFilter = "all" | "low" | "out";
 
@@ -120,6 +121,7 @@ function ItemsPage() {
       ql ? (r.name + " " + r.company + " " + (r.hsn ?? "")).toLowerCase().includes(ql) : true,
     )
     .sort((a, b) => itemLabel(a).localeCompare(itemLabel(b)));
+  const { shown, more } = useShowMore(list);
   const stockValue = rows.reduce((a, r) => a + Math.max(0, r.stock) * avgCostFor(db, r.id), 0);
 
   const stockColor = (state: "out" | "low" | "ok") =>
@@ -308,7 +310,7 @@ function ItemsPage() {
               <span className="text-right">In stock</span>
               <span />
             </PeTHead>
-            {list.map((r) => (
+            {shown.map((r) => (
               <PeTRow
                 key={r.id}
                 template={COLS}
@@ -378,7 +380,7 @@ function ItemsPage() {
 
         {/* Mobile list (design: 03 Items) */}
         <div className="md:hidden grid gap-2.5" style={{ padding: 12, background: "var(--pe-bg)" }}>
-          {list.map((r) => (
+          {shown.map((r) => (
             <div
               key={r.id}
               role="button"
@@ -470,6 +472,7 @@ function ItemsPage() {
             </div>
           ))}
         </div>
+        {more}
 
         {list.length === 0 && (
           <PeEmpty>

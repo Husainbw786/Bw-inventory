@@ -1,6 +1,7 @@
 import * as React from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Session, User } from "@supabase/supabase-js";
+import { clearSnapshots } from "./localCache";
 
 // Role-related helpers now live in @/lib/business and are re-exported here
 // for backward compatibility with components that still import from @/lib/auth.
@@ -65,4 +66,5 @@ export const useAuth = () => React.useContext(Ctx);
 export async function signOut() {
   await supabase.auth.signOut();
   if (typeof window !== "undefined") window.localStorage.removeItem("activeBusinessId");
+  await clearSnapshots();
 }

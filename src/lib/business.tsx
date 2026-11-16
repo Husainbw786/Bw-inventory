@@ -1,6 +1,7 @@
 import * as React from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./auth";
+import { readCachedJSON, writeCachedJSON } from "./localCache";
 
 export type Role = "admin" | "editor" | "viewer";
 
@@ -63,7 +64,14 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    const cached = readCachedJSON<Membership[]>(`memberships:${user.id}`);
+    // Open from the last known list right away; the query below refreshes it.
+    if (cached?.length) {
+      setMemberships(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     let { data, error } = await supabase
       .from("business_members")
       .select(
@@ -87,7 +95,7 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
     }
     if (error) {
       console.error("[business] load", error);
-      setMemberships([]);
+      if (!cached) setMemberships([]);
       setLoading(false);
       return;
     }
@@ -96,6 +104,7 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
       .map((r: any) => ({ role: r.role as Role, business: r.business as Business }));
     list.sort((a, b) => a.business.name.localeCompare(b.business.name));
     setMemberships(list);
+    writeCachedJSON(`memberships:${user.id}`, list);
     setLoading(false);
   }, [user?.id, authLoading]);
 

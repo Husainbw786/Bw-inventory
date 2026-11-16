@@ -14,6 +14,7 @@ import { Plus, Pencil, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { NumberInput } from "@/components/ui/number-input";
 import { PeAvatar, PeFormError } from "@/components/ui/pe";
+import { useShowMore } from "@/lib/useShowMore";
 
 export const Route = createFileRoute("/purchases")({
   // ?new=1 opens the create dialog straight away (dashboard quick actions, Ctrl+K)
@@ -42,13 +43,14 @@ function PurchasesPage() {
   }, [search.new, canWrite, navigate]);
 
   const list = db.purchases.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const { shown, more } = useShowMore(list);
 
   return (
     <>
       <PageHeader title="Purchases" subtitle="Stock you bought from dealers" action={canWrite ? <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus />New</Button> : null} />
 
       <div className="grid gap-3">
-        {list.map((p) => {
+        {shown.map((p) => {
           const item = findItem(db, p.itemId);
           const dealer = findDealer(db, p.dealerId);
           const canEdit = canWrite && (isAdmin || (user && p.createdBy === user.id));
@@ -127,6 +129,7 @@ function PurchasesPage() {
             </div>
           );
         })}
+        {more}
         {list.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No purchases yet.</p>}
       </div>
 

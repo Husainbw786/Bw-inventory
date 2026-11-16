@@ -74,6 +74,7 @@ import {
 import { toast } from "sonner";
 import { NumberInput } from "@/components/ui/number-input";
 import { MobileHeader } from "@/components/AppLayout";
+import { useShowMore } from "@/lib/useShowMore";
 
 export const Route = createFileRoute("/sales")({
   // Legacy: ?new=1 used to open the bill dialog here; it now forwards to /sales/new.
@@ -123,6 +124,7 @@ function SalesPage() {
     paid: visible.filter((s) => statusOf(s) === "paid").length,
   };
   const list = statusTab === "all" ? visible : visible.filter((s) => statusOf(s) === statusTab);
+  const { shown, more } = useShowMore(list);
   const archivedCount = all.filter((s) => s.archived).length;
   const t = today();
   const dueTotal = visible.reduce(
@@ -488,7 +490,7 @@ function SalesPage() {
               <span className="text-right">Status</span>
               <span />
             </PeTHead>
-            {list.map((s) => {
+            {shown.map((s) => {
               const info = rowInfo(s);
               return (
                 <PeTRow
@@ -556,7 +558,7 @@ function SalesPage() {
 
         {/* Mobile cards */}
         <div className="md:hidden">
-          {list.map((s) => {
+          {shown.map((s) => {
             const info = rowInfo(s);
             return (
               <div
@@ -630,6 +632,7 @@ function SalesPage() {
           })}
         </div>
 
+        {more}
         {list.length === 0 && (
           <PeEmpty>
             {visible.length === 0

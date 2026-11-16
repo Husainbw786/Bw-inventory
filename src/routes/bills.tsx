@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { useShowMore } from "@/lib/useShowMore";
 
 export const Route = createFileRoute("/bills")({
   head: () => ({ meta: [{ title: "Bills — Shop Manager" }] }),
@@ -34,6 +35,7 @@ function BillsList() {
   const all = db.sales.filter((s) => s.isBill).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const bills = showArchived ? all : all.filter((s) => !s.archived);
   const archivedCount = all.filter((s) => s.archived).length;
+  const { shown, more } = useShowMore(bills);
 
   const [unpaidTarget, setUnpaidTarget] = React.useState<Sale | null>(null);
   const [unpaidReason, setUnpaidReason] = React.useState("");
@@ -81,7 +83,7 @@ function BillsList() {
       )}
 
       <div className="grid gap-2">
-        {bills.map((s) => {
+        {shown.map((s) => {
           const c = findCustomer(db, s.customerId);
           return (
             <div key={s.id} className="relative">
@@ -171,6 +173,7 @@ function BillsList() {
             </div>
           );
         })}
+        {more}
         {bills.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No bills yet.</p>}
       </div>
 

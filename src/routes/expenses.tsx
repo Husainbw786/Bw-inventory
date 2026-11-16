@@ -13,6 +13,7 @@ import { Plus, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { PeFormError } from "@/components/ui/pe";
 import { NumberInput } from "@/components/ui/number-input";
+import { useShowMore } from "@/lib/useShowMore";
 
 const CATS = ["Transport", "Rent", "Tea & Snacks", "Electricity", "Repairs", "Stationery", "Other"];
 
@@ -42,6 +43,7 @@ function ExpensesPage() {
     }
   }, [search.new, canWrite, navigate]);
   const list = db.expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const { shown, more } = useShowMore(list);
 
   const monthTotal = list
     .filter((e) => e.date.slice(0, 7) === today().slice(0, 7))
@@ -52,7 +54,7 @@ function ExpensesPage() {
       <PageHeader title="Expenses" subtitle={`This month: ${fmtINR(monthTotal)}`} action={canWrite ? <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus />Add</Button> : null} />
 
       <div className="grid gap-2">
-        {list.map((e) => {
+        {shown.map((e) => {
           const canEdit = canWrite && (isAdmin || (user && e.createdBy === user.id));
           return (
             <Card key={e.id}>
@@ -78,6 +80,7 @@ function ExpensesPage() {
             </Card>
           );
         })}
+        {more}
         {list.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No expenses yet.</p>}
       </div>
 

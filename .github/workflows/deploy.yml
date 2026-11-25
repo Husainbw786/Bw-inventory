@@ -1,4 +1,4 @@
-name: Deploy to Cloudflare
+name: Deploy
 
 on:
   push:
@@ -21,10 +21,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Production deploy — push to main or manual dispatch.
+  # Production deploy — push to main or manual dispatch. Builds a plain Node
+  # server and ships it to the Oracle server (see deploy/README.md).
   deploy:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    env:
+      BUILD_TARGET: node
     steps:
       - uses: actions/checkout@v4
 
@@ -39,13 +42,17 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Deploy to Cloudflare Workers
-        run: npx wrangler deploy -c wrangler.deploy.jsonc
+      - name: Deploy to Oracle
+        run: |
+          install -m 600 /dev/null ~/deploy_key
+          printf '%s\n' "$ORACLE_SSH_KEY" > ~/deploy_key
+          deploy/deploy.sh "$ORACLE_HOST" ~/deploy_key
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_HOST: ubuntu@130.210.41.14
 
-  # PR preview — uploads a version without touching production traffic
-  # and comments the preview URL on the PR.
+  # PR preview (Cloudflare) — uploads a throwaway version to workers.dev
+  # without touching production, and comments the preview URL on the PR.
   preview:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest

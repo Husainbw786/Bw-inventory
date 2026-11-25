@@ -8,7 +8,12 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
 // @cloudflare/vite-plugin builds from this — wrangler.jsonc main alone is insufficient.
+// BUILD_TARGET=node builds a plain Node server (.output/server/index.mjs) for the
+// Oracle server's Docker image; without it the build stays the Cloudflare one.
+const nodeBuild = process.env.BUILD_TARGET === "node";
+
 export default defineConfig({
+  ...(nodeBuild ? { nitro: { preset: "node-server" } } : {}),
   tanstackStart: {
     server: { entry: "server" },
   },

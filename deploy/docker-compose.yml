@@ -1,0 +1,49 @@
+# Runs bw-inventory on the Oracle server (/opt/bw-inventory).
+#
+#   /opt/bw-inventory/
+#     docker-compose.yml, caddy/Caddyfile   ← copied from deploy/ on every deploy
+#     .env                            ← secrets, created once by hand (see deploy/README.md)
+#     current -> releases/<sha>       ← the built app (.output), switched on every deploy
+#
+# The app is plain JavaScript built by GitHub Actions, so it runs on the stock
+# Node image; no image of our own is built or stored anywhere.
+services:
+  app:
+    image: node:22-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "server/index.mjs"]
+    env_file: .env
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      NODE_ENV: production
+    volumes:
+      - ./current:/app:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/privacy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-130-210-41-14.sslip.io}
+    volumes:
+      # A folder, not the file: deploys replace the file, and a single-file
+      # mount would keep showing Caddy the old one.
+      - ./caddy:/etc/caddy:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:

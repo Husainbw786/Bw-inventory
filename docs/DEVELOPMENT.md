@@ -2,9 +2,9 @@
 
 Shop inventory & billing app for a small trading business — track items, purchases, sales, expenses, dealers and customers, generate GST bills as PDFs, and view reports. Multi-user with business-scoped memberships and invites.
 
-Built with **TanStack Start (React 19) + Supabase**, deployed to **Cloudflare Workers**.
+Built with **TanStack Start (React 19) + Supabase**, deployed as a Node server on an **Oracle Cloud** free ARM server (Docker + Caddy, see [deploy/README.md](../deploy/README.md)).
 
-**Live:** https://bwinventory.husainbw.in (custom domain on the `bw-inventory` Worker; `bw-inventory.bw-inventory.workers.dev` serves the same deploy).
+**Live:** https://bwinventory.husainbw.in (also https://130-210-41-14.sslip.io, the same server).
 
 ## Features
 
@@ -31,7 +31,7 @@ Built with **TanStack Start (React 19) + Supabase**, deployed to **Cloudflare Wo
 | UI | React 19, Tailwind CSS v4, shadcn/ui (Radix primitives), lucide-react icons, sonner toasts |
 | Data | Supabase (Postgres + RLS + Auth), TanStack Query for caching |
 | PDF | jsPDF + jspdf-autotable |
-| Hosting | Cloudflare Workers (SSR worker + static assets) |
+| Hosting | Oracle Cloud ARM server: Node (Nitro `node-server` build) behind Caddy; Cloudflare Workers only for PR previews |
 | Tooling | Vite 7, TypeScript, ESLint + Prettier, `@lovable.dev/vite-tanstack-config` |
 
 ## Local development
@@ -100,18 +100,9 @@ The payments ledger stays consistent by construction: whenever a sale's `amountP
 
 ## Deploy
 
-Every push to `main` auto-deploys via GitHub Actions ([deploy.yml](../.github/workflows/deploy.yml)): `npm ci` → `npm run build` → `wrangler deploy -c wrangler.deploy.jsonc`.
+Every push to `main` auto-deploys via GitHub Actions ([deploy.yml](../.github/workflows/deploy.yml)): `npm ci` → `BUILD_TARGET=node npm run build` → [deploy/deploy.sh](../deploy/deploy.sh) ships `.output` to the Oracle server. Server layout, manual deploy, rollback and logs: [deploy/README.md](../deploy/README.md).
 
-Manual deploy:
-
-```bash
-npm run build
-npx wrangler deploy -c wrangler.deploy.jsonc   # needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
-```
-
-Two wrangler configs exist on purpose: `wrangler.jsonc` (dev, entry `src/server.ts`) and `wrangler.deploy.jsonc` (deploy, entry `dist/server/server.js` + built assets).
-
-Database changes go through Supabase migrations in [supabase/migrations/](../supabase/migrations/), applied with the Supabase CLI.
+`BUILD_TARGET=node` makes [vite.config.ts](../vite.config.ts) build with Nitro's `node-server` preset; without it the build is the Cloudflare one, still used for PR previews (`wrangler versions upload -c wrangler.deploy.jsonc`). Two wrangler configs exist on purpose: `wrangler.jsonc` (dev, entry `src/server.ts`) and `wrangler.deploy.jsonc` (previews, entry `dist/server/server.js` + built assets).
 
 ## Android app
 
@@ -123,8 +114,8 @@ The Android app is the website packaged as a **Trusted Web Activity (TWA)**: a P
 |---|---|
 | `.well-known/manifest.json` | Name, colours, `start_url`, icons, home-screen shortcuts. Linked from `__root.tsx`. Lives under `/.well-known/` because Cloudflare's bot challenge on the zone exempts that prefix (and static extensions) but challenges other `.json`/`.html` paths, and the Android build tooling must fetch the manifest without a browser. |
 | `sw.js` | Service worker: offline fallback page + cache for hashed `/assets/`. Never caches HTML, `/_serverFn/` or Supabase. Bump `CACHE_VERSION` to flush. Registered in production only ([pwa.ts](../src/lib/pwa.ts)). |
-| `offline.html` | Self-contained page shown when a navigation fails offline (served at `/offline`; Cloudflare strips the extension). |
-| `_headers` | Cloudflare static-asset headers: `no-cache` for the worker/manifest, immutable for `/assets/*`. |
+| `offline.html` | Self-contained page shown when a navigation fails offline (served at `/offline`: Cloudflare strips the extension, Caddy rewrites it). |
+| `_headers` | Static-asset headers for Cloudflare previews: `no-cache` for the worker/manifest, immutable for `/assets/*`. Production gets the same headers from [deploy/Caddyfile](../deploy/Caddyfile); change both together. |
 | `.well-known/assetlinks.json` | Digital Asset Links. Must list the SHA-256 of the Android signing certificates (upload key + Play App Signing key) or the TWA shows Chrome's toolbar. |
 | `icons/` | `icon.svg` is the source; PNGs are rendered by `node scripts/gen-icons.mjs [--font IBMPlexSans-Bold.ttf]`. Replace `icon.svg` with real artwork and re-run. Play Store assets land in `android/store-assets/`. |
 

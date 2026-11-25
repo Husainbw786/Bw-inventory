@@ -503,6 +503,7 @@ export type Database = {
       }
       sale_lines: {
         Row: {
+          business_id: string
           gst_rate: number | null
           id: string
           item_id: string | null
@@ -511,6 +512,7 @@ export type Database = {
           sale_id: string
         }
         Insert: {
+          business_id?: string
           gst_rate?: number | null
           id?: string
           item_id?: string | null
@@ -519,6 +521,7 @@ export type Database = {
           sale_id: string
         }
         Update: {
+          business_id?: string
           gst_rate?: number | null
           id?: string
           item_id?: string | null
@@ -527,6 +530,13 @@ export type Database = {
           sale_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "sale_lines_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "sale_lines_item_id_fkey"
             columns: ["item_id"]
@@ -703,6 +713,7 @@ export type Database = {
         Args: { _business_id: string; _user_id: string }
         Returns: boolean
       }
+      my_business_ids: { Args: never; Returns: string[] }
     }
     Enums: {
       app_role: "admin" | "staff" | "editor" | "viewer"

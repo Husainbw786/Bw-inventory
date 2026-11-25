@@ -1,0 +1,33 @@
+# HTTPS in front of the Node app. SITE_ADDRESS comes from the server's .env
+# (comma-separated, e.g. "bwinventory.husainbw.in, 130-210-41-14.sslip.io");
+# Caddy gets and renews the certificates itself.
+#
+# Headers mirror public/_headers (which only Cloudflare reads): the service
+# worker and manifest are never cached, hashed assets are cached forever.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# public/sw.js caches the offline page as "/offline" (Cloudflare served
+	# offline.html without its extension).
+	rewrite /offline /offline.html
+
+	@sw path /sw.js
+	header @sw >Cache-Control "no-cache"
+	header @sw >Service-Worker-Allowed "/"
+
+	@manifest path /.well-known/manifest.json
+	header @manifest >Cache-Control "no-cache"
+	header @manifest >Content-Type "application/manifest+json"
+
+	@offline path /offline /offline.html
+	header @offline >Cache-Control "no-cache"
+
+	@assetlinks path /.well-known/assetlinks.json
+	header @assetlinks >Cache-Control "public, max-age=3600"
+	header @assetlinks >Content-Type "application/json"
+
+	@assets path /assets/*
+	header @assets >Cache-Control "public, max-age=31536000, immutable"
+
+	reverse_proxy app:3000
+}

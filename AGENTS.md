@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository. See [docs/DEVELOPMENT.
 
 ## What this is
 
-Shop inventory & billing app: TanStack Start (React 19) + Supabase (Postgres/RLS/Auth), deployed to Cloudflare Workers. Single business domain: items, purchases, sales (+ GST bills), expenses, dealers/customers, multi-user businesses with invites.
+Shop inventory & billing app: TanStack Start (React 19) + Supabase (Postgres/RLS/Auth), deployed as a Node server on an Oracle Cloud ARM server (Docker + Caddy; Cloudflare Workers only for PR previews). Single business domain: items, purchases, sales (+ GST bills), expenses, dealers/customers, multi-user businesses with invites.
 
 ## Commands
 
@@ -29,8 +29,8 @@ There is no test suite. Verify changes with `npx tsc --noEmit` and `npm run buil
 - **Routing is file-based.** Add a route by creating `src/routes/<name>.tsx`; the dev server/build regenerates `src/routeTree.gen.ts`. Never hand-edit `routeTree.gen.ts`. Bills are created and edited on the full-page composer at `/sales/new` ([sales_.new.tsx](src/routes/sales_.new.tsx) — the `_` keeps it out of the `/sales` list's layout); `/sales` is the list only. Deep links: `/sales/new?edit=<id>`, `/items?filter=low|out`, `/items?new=1`, `/directory?tab=customers|dealers&party=<id>`, `/directory?new=1`, `/purchases?new=1`, `/expenses?new=1`, and the mobile quick-entry screen `/entry?type=purchase|expense|in|out[&party=<id>]` ([entry.tsx](src/routes/entry.tsx)).
 - **Database changes** require a new SQL file in `supabase/migrations/` (timestamped filename, like the existing ones) including RLS policies — every table is business-scoped and RLS-protected. Update [src/integrations/supabase/types.ts](src/integrations/supabase/types.ts) to match.
 - **Vite config**: `@lovable.dev/vite-tanstack-config` already bundles the TanStack Start, React, Tailwind, path-alias, and Cloudflare plugins — do not add them again in [vite.config.ts](vite.config.ts) or the build breaks with duplicate plugins.
-- **Two wrangler configs are intentional**: `wrangler.jsonc` (dev) vs `wrangler.deploy.jsonc` (CI deploy). Keep their `vars` in sync if you touch either.
-- **PWA / Android (TWA) files live in `public/`** and ship as Cloudflare static assets: `.well-known/manifest.json`, `sw.js` (hand-written; never cache HTML or `/_serverFn/`; bump `CACHE_VERSION` when changing it), `offline.html`, `_headers`, `.well-known/assetlinks.json` (signing-cert fingerprints; must match `android/twa-manifest.json`), `icons/` (regenerate with `node scripts/gen-icons.mjs`). Registration and the install prompt are in [src/lib/pwa.ts](src/lib/pwa.ts). `/privacy` is a public route (listed in `publicPaths` in `__root.tsx`) that the Play listing links to.
+- **Two build targets**: `BUILD_TARGET=node npm run build` makes the production Node server (`.output/`, shipped by [deploy/deploy.sh](deploy/deploy.sh), see [deploy/README.md](deploy/README.md)); a plain `npm run build` makes the Cloudflare build used for PR previews. Two wrangler configs are intentional: `wrangler.jsonc` (dev) vs `wrangler.deploy.jsonc` (previews); keep their `vars` in sync. Server-side env vars live in `/opt/bw-inventory/.env` on the server.
+- **PWA / Android (TWA) files live in `public/`** and are served as static files (production cache headers live in [deploy/Caddyfile](deploy/Caddyfile), mirroring `public/_headers`): `.well-known/manifest.json`, `sw.js` (hand-written; never cache HTML or `/_serverFn/`; bump `CACHE_VERSION` when changing it), `offline.html`, `_headers`, `.well-known/assetlinks.json` (signing-cert fingerprints; must match `android/twa-manifest.json`), `icons/` (regenerate with `node scripts/gen-icons.mjs`). Registration and the install prompt are in [src/lib/pwa.ts](src/lib/pwa.ts). `/privacy` is a public route (listed in `publicPaths` in `__root.tsx`) that the Play listing links to.
 
 ## UI conventions
 

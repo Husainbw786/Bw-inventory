@@ -286,6 +286,18 @@ async function selectAll<T>(
 }
 const counted = (withCount: boolean) => (withCount ? { count: "exact" as const } : undefined);
 
+// sale_lines carries business_id since the 20261125 migration, which avoids a
+// join with sales per line. Until that migration is applied, filter via the join.
+let hasLineBusinessId = true;
+async function fetchSaleLines(bid: string) {
+  if (hasLineBusinessId) {
+    const r = await selectAll((f, t, c) => supabase.from("sale_lines").select("*", counted(c)).eq("business_id", bid).order("id").range(f, t));
+    if (r.error?.code !== "42703") return r;
+    hasLineBusinessId = false;
+  }
+  return selectAll((f, t, c) => supabase.from("sale_lines").select("*, sales!inner(business_id)", counted(c)).eq("sales.business_id", bid).order("id").range(f, t));
+}
+
 async function fetchAll(bid: string): Promise<CachedDB> {
   const [itemsR, dealersR, customersR, purchasesR, salesR, linesR, expensesR, paymentsR, adjustmentsR, profilesR, gstProbeR, purchaseLinkProbeR, waSessionProbeR] =
     await Promise.all([
@@ -294,7 +306,7 @@ async function fetchAll(bid: string): Promise<CachedDB> {
       selectAll((f, t, c) => supabase.from("customers").select("*", counted(c)).eq("business_id", bid).order("created_at").order("id").range(f, t)),
       selectAll((f, t, c) => supabase.from("purchases").select("*", counted(c)).eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
       selectAll((f, t, c) => supabase.from("sales").select("*", counted(c)).eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
-      selectAll((f, t, c) => supabase.from("sale_lines").select("*, sales!inner(business_id)", counted(c)).eq("sales.business_id", bid).order("id").range(f, t)),
+      fetchSaleLines(bid),
       selectAll((f, t, c) => supabase.from("expenses").select("*", counted(c)).eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
       selectAll((f, t, c) => supabase.from("payments").select("*", counted(c)).eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
       selectAll((f, t, c) => supabase.from("stock_adjustments").select("*", counted(c)).eq("business_id", bid).order("created_at", { ascending: false }).order("id").range(f, t)),
@@ -1085,10 +1097,58 @@ export function useDB(): [DB, (u: (db: DB) => DB) => Promise<SaveResult>] {
           })
         : Promise.resolve();
 
+      // What the database changes on its own after these writes, so the cache
+      // can be patched with a tiny query instead of re-downloading the business.
+      const prevSales = new Map(db.sales.map((s) => [s.id, s]));
+      const nextSaleIds = new Set(next.sales.map((s) => s.id));
+      const nextPurchaseIds = new Set(next.purchases.map((p) => p.id));
+      // Bill numbers come from a trigger: new bills, and sales just marked as bills.
+      const needBillNo = next.sales
+        .filter((s) => s.isBill && s.billNo == null && (!prevSales.has(s.id) || !prevSales.get(s.id)!.isBill))
+        .map((s) => s.id);
+      // A deleted sale or purchase takes its linked khata rows with it (ON DELETE CASCADE).
+      const goneSales = new Set(db.sales.filter((s) => !nextSaleIds.has(s.id)).map((s) => s.id));
+      const gonePurchases = new Set(db.purchases.filter((p) => !nextPurchaseIds.has(p.id)).map((p) => p.id));
+      // Deleting an item, dealer or customer nulls references in other tables; rare, so reload fully.
+      const goneParty = (a: { id: string }[], b: { id: string }[]) => {
+        const ids = new Set(b.map((x) => x.id));
+        return a.some((x) => !ids.has(x.id));
+      };
+      const needFullReload =
+        !before ||
+        goneParty(db.items, next.items) ||
+        goneParty(db.dealers, next.dealers) ||
+        goneParty(db.customers, next.customers);
+
+      const patchAfterSave = async () => {
+        if (needFullReload) return qc.invalidateQueries({ queryKey: key });
+        let billNos = new Map<string, number | null>();
+        if (needBillNo.length) {
+          const { data: rows, error } = await supabase.from("sales").select("id, bill_no").in("id", needBillNo);
+          if (error) return qc.invalidateQueries({ queryKey: key });
+          billNos = new Map((rows ?? []).map((r) => [r.id, r.bill_no ?? null]));
+        }
+        if (!billNos.size && !goneSales.size && !gonePurchases.size) return;
+        qc.setQueryData<CachedDB>(key, (cur) =>
+          cur && {
+            ...cur,
+            sales: billNos.size
+              ? cur.sales.map((s) => (billNos.has(s.id) ? { ...s, billNo: billNos.get(s.id)! } : s))
+              : cur.sales,
+            payments:
+              goneSales.size || gonePurchases.size
+                ? cur.payments.filter(
+                    (p) => !(p.saleId && goneSales.has(p.saleId)) && !(p.purchaseId && gonePurchases.has(p.purchaseId)),
+                  )
+                : cur.payments,
+          },
+        );
+      };
+
       return Promise.all([writes, shown])
         .then(([jobs]): SaveResult => {
           backupMirror(jobs, bid);
-          qc.invalidateQueries({ queryKey: key });
+          patchAfterSave().catch(() => qc.invalidateQueries({ queryKey: key }));
           return { ok: true };
         })
         .catch(async (e: Error): Promise<SaveResult> => {
